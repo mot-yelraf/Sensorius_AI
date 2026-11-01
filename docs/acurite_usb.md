@@ -22,6 +22,45 @@ Unknown pressure calibration is rejected without discarding valid outdoor data.
 See the [adapter contract](weather_adapters.md) for rain semantics and extension
 instructions. All profiles need physical model/platform validation.
 
+## Connection status and reporting uptime
+
+**Sensor Info** shows **USB Connection** in place of IP Address, using USB ID
+`24c0:0003` and the reader's detected console identity (USB port/HID path or
+serial identity). **USB Status** and **Sensor Reception** distinguish a connected
+console from successful reception of its outdoor RF sensor. These details use
+the existing reader snapshot and do not probe USB from a web request.
+
+After a healthy observation, the reader tolerates two consecutive USB read/access
+failures and marks the connection failed on the third. These are attempts on the
+normal 18-second sampling cycle, with no burst of immediate USB retries. Any
+successful USB access resets that counter. One invalid outdoor report is
+discarded; two consecutive invalid outdoor reports invalidate the outdoor data.
+A valid outdoor report resets the invalid-report counter. The status endpoint
+includes `usb_read_failures` and `invalid_outdoor_reports` for diagnosis.
+
+Tolerated failures retain previously valid samples with their original timestamps;
+they do not refresh outdoor sample age or use rejected report values. Reported
+zero RF signal still invalidates outdoor data immediately, and outdoor samples
+still expire after 120 seconds without a valid report.
+
+When a failure is confirmed by these rules, the dashboard indicator becomes
+amber while acquisition retries. A failure lasting at least 60
+seconds since the last healthy sample is confirmed offline at the next sampler
+check and turns the indicator red. Recovery returns it to green. The retry
+window affects health display and offline-event counting; rejected reports are
+never used as readings, and rain baselines reset on confirmed RF/USB loss.
+
+**Reporting uptime** starts at the first healthy sample in the current hub
+process and restarts after a confirmed outage. Brief retries preserve the
+session. It is observed reporting time, not the console's power-on uptime; a
+hub restart starts a new session. Offline events are recorded through the shared
+SQLite event logger, so the count/history persists across hub restarts. Earlier
+unrecorded outages cannot be reconstructed by this update.
+
+When available, **Signal strength** displays the outdoor RF level on the
+console's 0–3 scale. A reported zero means no reception. Missing or expired
+signal information is hidden; the number is not a percentage or Wi-Fi RSSI.
+
 ## Sensor calibration and pressure
 
 Open the AcuRite station's settings gear, then **Sensor Calibration**. Set the

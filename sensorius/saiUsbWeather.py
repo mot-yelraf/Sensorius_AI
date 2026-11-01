@@ -11,7 +11,7 @@ from datetime import timezone
 from types import SimpleNamespace
 
 from .saiUtils import printDM
-from .saiWeatherStation import ensure_station_settings
+from .saiWeatherStation import ensure_station_settings, StationReportingHealth
 from .weather_adapters.davis import BAUD_RATES, DavisVueAdapter, validate_port
 from .weather_adapters.wmr100 import Wmr100UsbAdapter, normalize_model
 from .weather_adapters.observations import ChannelCapability, persist_observation
@@ -57,6 +57,7 @@ class UsbWeatherIngest:
         self.sensor_manager = sensor_manager
         setattr(data_logger, f"{kind}_service", self)
         self.adapter = adapter_class(self._configuration(), transport)
+        self._health = StationReportingHealth(data_logger)
         self._lock = asyncio.Lock()
         self._baseline = None
         self._last_write = float("-inf")
@@ -103,6 +104,7 @@ class UsbWeatherIngest:
         self.settings.set_many_in_memory(updates)
         self.settings.save_settings()
         self.adapter.reset()
+        self._health = StationReportingHealth(self.data_logger)
         self._baseline, self._last_write, self._identity = None, float("-inf"), None
         self._error = ""
 
@@ -152,16 +154,23 @@ class UsbWeatherIngest:
         if not enabled:
             snapshot.update(state="disabled", connected=False, observation_fresh=False, sensors=[])
             snapshot["station"] = {"reporting": False, "battery_status": "UNKNOWN"}
-        return {**snapshot, "enabled": enabled, "label": self.label, "sensor_id": self._sensor_id,
+        result = {**snapshot, "enabled": enabled, "label": self.label, "sensor_id": self._sensor_id,
                 "port": config.davis_port, "baud_rate": config.davis_baud_rate,
                 "model": config.wmr100_model, "usb_serial": config.wmr100_usb_serial,
                 "poll_interval_sec": self._get("POLL_INTERVAL_SEC", 60),
                 "last_error": self._error or snapshot.get("last_error", "")}
+        result["usb_connection"] = ("USB serial\n" + (config.davis_port or "Port not configured")
+                                    if self.kind == "davis" else "0fde:ca01\n" + (
+                                        config.wmr100_usb_serial or snapshot.get("source_id") or "Console not detected"))
+        return self._health.decorate(result)
 
     async def poll_once(self):
         """Persist independently identified stations and conservative interval rainfall."""
         async with self._lock:
             observation = await self.read()
+            health_id = (self.kind + "-" + hashlib.sha256(observation.source_id.encode()).hexdigest()[:16]
+                         if observation is not None else self._sensor_id)
+            await self._health.update(health_id, self.adapter.status())
             if not self.adapter.status()["station"]["reporting"]:
                 self._baseline = None
             if observation is None:

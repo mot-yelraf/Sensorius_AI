@@ -1144,6 +1144,9 @@ canvas{
   font-variant-numeric:tabular-nums;
   overflow-wrap:anywhere;
 }
+[data-stat-value="usb-connection"]{
+  white-space:pre-line;
+}
 [data-stat-channel-list]{
   display:grid;
   gap:.65rem;
@@ -1160,6 +1163,9 @@ canvas{
 }
 .statistics-row span{
   color:var(--muted);
+}
+.statistics-row[data-stat-signal-row][hidden]{
+  display:none;
 }
 .statistics-row strong{
   font-variant-numeric:tabular-nums;

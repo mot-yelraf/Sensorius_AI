@@ -272,6 +272,27 @@ Do not rename stored metric keys casually. Existing database history,
 automation rules, Home Assistant entities, and display settings can depend on
 the exact strings.
 
+## Weather station reporting statistics
+
+Ecowitt and directly connected USB weather stations report **Reporting uptime**
+in Sensor Info even before any offline event has occurred. The session begins
+with the first healthy observation after the hub process starts, and restarts
+after a confirmed outage or USB reader reconfiguration. It does not measure the
+station's boot time or infer continuous uptime from older database readings.
+Recorded offline events use the existing SQLite liveness history; its historical
+count remains available when the hub restarts.
+
+The Signal strength row is shown when current outdoor RF information is
+available: AcuRite reports levels 0–3 and supported Ecowitt array inventory
+reports levels 0–4. Missing/stale signal information stays hidden. The scales
+are vendor reception levels, not Wi-Fi RSSI, dBm, or comparable percentages.
+
+USB stations show connection identity and USB/reception status in place of
+network addressing. Ecowitt retains its gateway IP information. The USB readers
+use an amber retry interval before confirming an outage; Ecowitt retains its
+existing acquisition/freshness policy. See [AcuRite USB](acurite_usb.md#connection-status-and-reporting-uptime)
+for the retry and uptime details.
+
 ## AcuRite USB stations
 
 A PC Connect console aggregates its outdoor RF sensors as a station device.

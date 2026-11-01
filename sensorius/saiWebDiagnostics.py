@@ -262,20 +262,24 @@ class DeviceStatistics:
         except Exception:
             last_packet_epoch = None
 
+        is_usb_console = normalized_id.startswith(("acurite-", "davis-", "oregon-"))
+        weather_health = (await asyncio.to_thread(station_health, data_logger, normalized_id)
+                          if is_usb_console else {})
+        weather_health = {**(await asyncio.to_thread(ecowitt_sensor_health, data_logger, normalized_id)), **weather_health}
+        has_reporting_uptime = is_usb_console or normalized_id.startswith("ecowitt-")
+        uptime_start = weather_health.get("uptime_started_epoch") if has_reporting_uptime else last_offline_epoch
+        uptime_label = _format_stats_duration(stats_now - float(uptime_start) if uptime_start is not None else None)
+        if has_reporting_uptime and uptime_start is None:
+            uptime_label = weather_health.get("uptime_empty_label", "Waiting for station data")
         return {
             "is_ecowitt": normalized_id.startswith("ecowitt-"),
             "is_acurite": normalized_id.startswith("acurite-"),
             "is_usb_weather": normalized_id.startswith(("davis-", "oregon-")),
-            **(await asyncio.to_thread(ecowitt_sensor_health, data_logger, normalized_id)),
-            **(await asyncio.to_thread(station_health, data_logger, normalized_id)
-               if normalized_id.startswith(("acurite-", "davis-", "oregon-")) else {}),
+            **weather_health,
+            "has_reporting_uptime": has_reporting_uptime,
             "offline_events_24h": offline_events_24h,
             "last_offline_epoch": last_offline_epoch,
-            "uptime_since_last_offline_label": _format_stats_duration(
-                (stats_now - float(last_offline_epoch))
-                if last_offline_epoch is not None
-                else None
-            ),
+            "uptime_since_last_offline_label": uptime_label,
             "last_offline_event_label": _format_stats_timestamp(
                 last_offline_epoch,
                 empty="No offline events",

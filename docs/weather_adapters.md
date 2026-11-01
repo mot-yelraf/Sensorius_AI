@@ -41,6 +41,19 @@ simultaneous acquisition from all attached consoles.
   observation freshness and station battery health. It never probes hardware or
   performs network I/O. Unknown battery status remains `UNKNOWN`.
 
+The hub services track reporting sessions with `StationReportingHealth` while
+retaining the adapters' strict field freshness. USB service status can be
+`degraded` during a bounded 60-second retry window; prolonged failures become
+`offline`. Only confirmed online/offline transitions are written through
+`saiDataLogger.log_sensor_event`. Reporting uptime uses a monotonic clock and
+starts with the first healthy observation in this process or after recovery.
+Ecowitt uses the same session/event tracking without adding USB retry grace.
+Optional battery/inventory metadata does not determine Ecowitt reporting uptime.
+AcuRite confirms USB access failure on the third consecutive failed sample and
+rejects outdoor data after two consecutive invalid outdoor reports. A valid
+access/report resets its corresponding counter. Zero RF signal and the existing
+120-second outdoor freshness limit remain authoritative during tolerated failures.
+
 An `Observation` has a source ID, aware observation/receipt timestamps converted
 to UTC, finite numeric measurements and optional explicit rain policy/counter
 provenance. Zero is valid. None, booleans, malformed and nonfinite measurements

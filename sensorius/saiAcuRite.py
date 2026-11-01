@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from .saiUtils import printDM
 from .saiSensorSettingsManager import SensorSettingsManager
 from .weather_adapters.acurite_calibration import calibrate_acurite_measurements, system_altitude_meters
-from .saiWeatherStation import ensure_station_settings
+from .saiWeatherStation import ensure_station_settings, StationReportingHealth
 from .weather_adapters.acurite import AcuRiteUsbReader, SAMPLE_SECONDS
 from .weather_adapters.acurite_models import CONSOLE_PROFILES, console_profile
 from .weather_adapters.observations import Observation, ChannelCapability, persist_observation
@@ -32,6 +32,7 @@ class AcuRiteUsbIngest:
         self.data_logger.acurite_service = self
         self.sensor_manager = sensor_manager
         self.adapter = AcuRiteUsbReader(self._configuration(), transport)
+        self._health = StationReportingHealth(data_logger)
         self._baseline = None
         self._last_write = float("-inf")
         self._sensor_id = ""
@@ -99,6 +100,7 @@ class AcuRiteUsbIngest:
             config.acurite_enabled, config.acurite_usb_serial, config.acurite_model
         ):
             self.adapter = AcuRiteUsbReader(config, self.adapter.transport)
+            self._health = StationReportingHealth(self.data_logger)
             self._baseline = None
             self._last_write = float("-inf")
         self.adapter.settings = config
@@ -133,8 +135,9 @@ class AcuRiteUsbIngest:
             sensor_id=self._sensor_id, last_error=self._error or snapshot["last_error"],
             poll_interval_sec=self.settings.get_setting("AcuRite", "POLL_INTERVAL_SEC", 60),
             profiles=[{"key": p.key, "label": p.label, "help": p.mode_help} for p in CONSOLE_PROFILES],
+            usb_connection="24c0:0003\n" + (self.adapter.device_identity or config.acurite_usb_serial or "Console not detected"),
         )
-        return snapshot
+        return self._health.decorate(snapshot)
 
     def _calibrate_observation(self, sensor_id: str, observation: Observation) -> None:
         """Reload offsets and mirror system altitude with writes only when values change."""
@@ -166,6 +169,9 @@ class AcuRiteUsbIngest:
         """Persist fresh samples and commit rain provenance only after a successful write."""
         async with self._configuration_lock:
             observation = await self.read()
+            identity = self.adapter.device_identity
+            health_id = "acurite-" + hashlib.sha256(identity.encode()).hexdigest()[:16] if identity else self._sensor_id
+            await self._health.update(health_id, self.adapter.status())
             if not self.adapter.status()["station"]["reporting"]:
                 self._baseline = None
             if observation is None:
