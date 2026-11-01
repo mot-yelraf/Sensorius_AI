@@ -19,6 +19,7 @@ from .saiWebServer import (
     set_macos_app_icon,
 )
 from .saiGuiEnvironment import configure_gui_environment
+from .saiNativeScrollProfile import attach_native_scroll_profile
 
 DEFAULT_WINDOW_X = 0
 DEFAULT_WINDOW_Y = 48
@@ -102,6 +103,7 @@ def main() -> int:
         frameless=False,
         confirm_close=True,
     )
+    attach_native_scroll_profile(window)
     if sys.platform.startswith("linux"):
         webview.start(gui="gtk")
     else:

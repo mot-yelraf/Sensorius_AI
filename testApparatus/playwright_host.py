@@ -62,7 +62,7 @@ async def switch_updates(websocket: WebSocket) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False, soil: bool = False, legacy: bool = False, unit_system: str = "Imperial", tile_style: str = "Theme", switch_tile_style: str = "Theme") -> HTMLResponse:
+def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False, soil: bool = False, legacy: bool = False, unit_system: str = "Imperial", tile_style: str = "Theme", switch_tile_style: str = "Theme", gauge_size: str = "Small") -> HTMLResponse:
     """Render a deterministic dashboard with enough metrics to test interaction."""
     sensor_id = station or ("ecowitt-pr-check" if battery else "aht-pr-check")
     metrics = {
@@ -125,6 +125,7 @@ def dashboard(battery: str = "", station: str = "", documentation: bool = False,
             metric_tile_style_map={sensor_id: tile_style},
             switch_tile_style_map={"test room": switch_tile_style, "unknown": switch_tile_style, "__unknown__": switch_tile_style},
             display_style="Gauge",
+            gauge_size=gauge_size,
             dashboard_background_theme="fruit" if documentation else "leaf",
             astro_payload={"ok": False, "reason": "documentation_fixture"} if documentation else None,
             biodynamic_payload={"ok": False, "reason": "documentation_fixture"} if documentation else None,

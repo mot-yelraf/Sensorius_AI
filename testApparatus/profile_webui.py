@@ -3,6 +3,7 @@
 
 Profiles:
 - dashboard initial load
+- dashboard scripted scrolling, including a temporary hover-disabled comparison
 - system settings modal
 - sensor settings modal
 - switch settings modal
@@ -27,6 +28,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -55,6 +57,7 @@ class Scenario:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse browser, native-renderer and scenario profiling options."""
     parser = argparse.ArgumentParser(description="Profile Sensorius Web UI flows.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Dashboard base URL.")
     parser.add_argument("--samples", type=int, default=3, help="Samples per scenario.")
@@ -63,6 +66,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chrome-path", default="", help="Explicit Chrome/Chromium binary path.")
     parser.add_argument("--debug-port", type=int, default=9222, help="Chrome DevTools port.")
     parser.add_argument("--output-json", default="", help="Optional path for raw JSON output.")
+    parser.add_argument("--renderer", choices=("chromium", "pywebview"), default="chromium", help="Browser engine; pywebview opens a temporary native profiling window.")
+    parser.add_argument("--scroll-duration-ms", type=int, default=3000, help="Duration of each scripted scroll sweep.")
+    parser.add_argument("--scroll-pointer-move", action="store_true", help="Also dispatch pointer movement over visible chart canvases during the sweep.")
+    parser.add_argument("--viewport-width", type=int, default=0, help="Optional Chromium viewport width for renderer comparisons.")
+    parser.add_argument("--viewport-height", type=int, default=0, help="Optional Chromium viewport height for renderer comparisons.")
+    parser.add_argument("--device-scale-factor", type=float, default=1, help="Chromium pixel scale when overriding its viewport; native uses the actual display.")
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
@@ -71,7 +80,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scenarios",
         default="all",
-        help="Comma-separated scenarios to run. Use all, or any of: system_settings,sensor_settings,switch_settings,weather_forecast,fullscreen_graph,calendar,calendar_month_selectors.",
+        help="Comma-separated scenarios to run. Use all, or any of: dashboard_scroll,system_settings,sensor_settings,switch_settings,weather_forecast,fullscreen_graph,calendar,calendar_month_selectors.",
     )
     parser.add_argument(
         "--fail-fast",
@@ -282,6 +291,59 @@ class ChromeSession:
                 self.proc.wait(timeout=3)
         if self.user_data_dir:
             shutil.rmtree(self.user_data_dir, ignore_errors=True)
+
+
+class PywebviewClient:
+    """Expose the profiler's page API through an isolated native webview.
+
+    The worker uses pywebview's supported JavaScript evaluator. No existing app
+    window, server configuration, or persistent browser profile is modified.
+    """
+
+    def __init__(self, window, timeout_sec):
+        self.window, self.timeout_sec = window, timeout_sec
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def setup(self):
+        """Use the native event loop initialized by pywebview."""
+        return None
+
+    async def navigate(self, url, timeout_sec):
+        """Load a target in the temporary window with a bounded readiness wait."""
+        def load():
+            self.window.events.loaded.clear()
+            self.window.load_url(url)
+            if not self.window.events.loaded.wait(timeout_sec):
+                raise TimeoutError(f"Timed out loading {url}")
+            if sys.platform.startswith("linux"):
+                self.window.restore()
+        await asyncio.to_thread(load)
+
+    async def evaluate(self, expression, await_promise=True):
+        """Wait for the native JavaScript promise without blocking its UI thread."""
+        def evaluate():
+            done = threading.Event()
+            result = []
+            def completed(value):
+                result.append(value)
+                done.set()
+            script = "Promise.resolve().then(() => eval(" + json.dumps(expression) + ")).then(value => ({ok:true,value}), error => ({ok:false,error:String(error)}))"
+            self.window.evaluate_js(script, callback=completed)
+            if not done.wait(self.timeout_sec + 5):
+                raise TimeoutError("Native webview JavaScript timed out")
+            if not result[0].get("ok"):
+                raise RuntimeError(result[0].get("error", "Native JavaScript failed"))
+            return result[0].get("value")
+        return await asyncio.to_thread(evaluate)
+
+    async def performance_metrics(self):
+        """Leave CDP-only renderer counters unavailable on native engines."""
+        return {}
 
 
 class CDPClient:
@@ -667,6 +729,11 @@ def build_js_helper(timeout_ms: int) -> str:
 
 SCENARIOS = (
     Scenario(
+        name="dashboard_scroll",
+        label="Dashboard scripted scrolling",
+        js_factory=Path(__file__).with_name("webui_scroll_probe.js").read_text(encoding="utf-8"),
+    ),
+    Scenario(
         name="system_settings",
         label="General Settings",
         js_factory="""
@@ -937,6 +1004,9 @@ def preflight_dashboard(base_url: str, timeout_sec: float) -> None:
 
 
 def performance_delta(before: dict[str, float], after: dict[str, float]) -> dict[str, float]:
+    """Convert available CDP counter differences into reporting units."""
+    if not after:
+        return {}
     seconds_metrics = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration")
     result = {
         f"{name.replace('Duration', '').lower()}_ms": round(
@@ -1109,6 +1179,7 @@ def summarize_metric(values: list[float], suffix: str = "ms") -> dict[str, float
 
 
 def build_summary(samples: dict[str, list[dict[str, Any]]], scenarios: tuple[Scenario, ...] = SCENARIOS) -> dict[str, Any]:
+    """Summarize navigation, scrolling and dialog scenario samples."""
     out: dict[str, Any] = {}
     dashboard_nav = [item.get("navigation") or {} for item in samples.get("dashboard", [])]
     dashboard_pages = [item.get("page") or {} for item in samples.get("dashboard", [])]
@@ -1166,6 +1237,16 @@ def build_summary(samples: dict[str, list[dict[str, Any]]], scenarios: tuple[Sce
             "max_fetch_ms": summarize_metric([row.get("max_fetch_ms") for row in rows]),
             "long_task_total_ms": summarize_metric([row.get("long_task_total_ms") for row in rows]),
         }
+        if scenario.name == "dashboard_scroll":
+            out[scenario.name]["passes"] = {
+                mode: {
+                    field: summarize_metric([
+                        item.get(field) for row in rows for item in row.get("passes", []) if item.get("mode") == mode
+                    ], "ms" if field.endswith("_ms") else "count")
+                    for field in ("frame_p50_ms", "frame_p95_ms", "frame_max_ms", "frames_over_50ms", "long_task_total_ms", "hover_plugin_calls")
+                }
+                for mode in ("normal", "hover_disabled", "normal_repeat")
+            }
     return out
 
 
@@ -1231,6 +1312,8 @@ def print_summary(
         print(f"  fetch_total_ms: {json.dumps(block.get('fetch_total_ms'))}")
         print(f"  max_fetch_ms: {json.dumps(block.get('max_fetch_ms'))}")
         print(f"  long_task_total_ms: {json.dumps(block.get('long_task_total_ms'))}")
+        if scenario.name == "dashboard_scroll":
+            print(f"  scroll_passes: {json.dumps(block.get('passes'))}")
         for alert in block.get("alerts") or []:
             print(f"  alert: {alert}")
         for error in block.get("errors") or []:
@@ -1238,7 +1321,8 @@ def print_summary(
         print()
 
 
-async def run(args: argparse.Namespace) -> dict[str, Any]:
+async def run(args: argparse.Namespace, native_window=None) -> dict[str, Any]:
+    """Profile selected scenarios in one isolated browser session."""
     scenarios = select_scenarios(args.scenarios)
     dashboard_scenarios = tuple(
         scenario for scenario in scenarios if scenario.name not in {"calendar", "calendar_month_selectors"}
@@ -1283,13 +1367,22 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 
     if not args.skip_preflight:
         preflight_dashboard(args.base_url, args.timeout_sec)
-    chrome = ChromeSession(resolve_chrome_path(args.chrome_path), args.debug_port)
-    chrome.start()
-    target_ws = chrome.create_target("about:blank")
+    chrome = None
+    if native_window is not None:
+        browser_client = PywebviewClient(native_window, args.timeout_sec)
+    else:
+        chrome = ChromeSession(resolve_chrome_path(args.chrome_path), args.debug_port)
+        chrome.start()
+        browser_client = CDPClient(chrome.create_target("about:blank"))
     timeout_ms = int(args.timeout_sec * 1000)
     try:
-        async with CDPClient(target_ws) as client:
+        async with browser_client as client:
             await client.setup()
+            if native_window is None and getattr(args, "viewport_width", 0) and getattr(args, "viewport_height", 0):
+                await client.send("Emulation.setDeviceMetricsOverride", {
+                    "width": args.viewport_width, "height": args.viewport_height,
+                    "deviceScaleFactor": args.device_scale_factor, "mobile": False,
+                })
             await client.evaluate(build_js_helper(timeout_ms))
             await configure_profiler_targets(client, args)
             for index in range(args.samples):
@@ -1309,6 +1402,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                     continue
                 await client.evaluate(build_js_helper(timeout_ms))
                 await configure_profiler_targets(client, args)
+                await client.evaluate("window.__sensScrollDurationMs = " + str(getattr(args, "scroll_duration_ms", 3000)) + "; window.__sensProfilerSampleIndex = " + str(index + 1))
+                await client.evaluate("window.__sensScrollPointerMove = " + json.dumps(bool(getattr(args, "scroll_pointer_move", False))))
                 results["dashboard"].append(await collect_dashboard_sample(client, args.timeout_sec))
                 await ensure_profiler_helper(client, args, timeout_ms)
                 await pause_between_scenarios(client, args.cooldown_ms)
@@ -1362,6 +1457,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             summary = build_summary(results, scenarios)
             payload = {
                 "base_url": args.base_url,
+                "renderer": getattr(args, "renderer", "chromium"),
                 "ecowitt_url": ecowitt_url,
                 "ecowitt_sections": list(ecowitt_sections) if ecowitt_sections else ["all"],
                 "sample_count": args.samples,
@@ -1371,14 +1467,45 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             }
             return payload
     finally:
-        chrome.stop()
+        if chrome:
+            chrome.stop()
+
+
+def run_native(args):
+    """Run profiling inside pywebview's main-thread native event loop."""
+    parts = Path(sys.executable).parts
+    bundled = any(part.endswith(".app") and parts[index + 1:index + 3] == ("Contents", "MacOS")
+                  for index, part in enumerate(parts[:-2]))
+    if sys.platform == "darwin" and not bundled:
+        raise RuntimeError("Mac native profiling requires an app-bundled Python interpreter; refusing an unbundled launch to avoid application-association prompts. Chromium profiling remains available.")
+    if sys.platform.startswith("linux"):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from sensorius.saiGuiEnvironment import configure_gui_environment
+        configure_gui_environment()
+    import webview
+    window = webview.create_window("Sensorius scroll profiler", "about:blank", width=1440, height=1000, on_top=True)
+    result = []
+    errors = []
+    def worker():
+        try:
+            result.append(asyncio.run(run(args, native_window=window)))
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            window.destroy()
+    webview.start(worker, private_mode=True, gui="gtk" if sys.platform.startswith("linux") else None)
+    if errors:
+        raise errors[0]
+    if not result:
+        raise RuntimeError("Native profiling window closed before completion")
+    return result[0]
 
 
 def main() -> int:
     args = parse_args()
     try:
         scenarios = select_scenarios(args.scenarios)
-        payload = asyncio.run(run(args))
+        payload = run_native(args) if args.renderer == "pywebview" else asyncio.run(run(args))
     except KeyboardInterrupt:
         return 130
     except Exception as exc:

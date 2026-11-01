@@ -117,6 +117,86 @@ recorded and the corresponding modal scenarios are skipped. Review both load
 and refresh errors alongside timing summaries. The profiler timeout does not
 change the dashboard's own 12-second request deadline.
 
+The `dashboard_scroll` scenario performs three timed, scripted down/up sweeps:
+normal chart events, temporarily disabled chart hover events, and a normal repeat.
+It records animation-frame gaps, scroll travel, chart/point counts, hover-hook
+calls, visibility/focus, viewport size, and long tasks when supported. It waits
+for initial micrograph requests to settle and rejects hidden-page samples.
+`--scroll-pointer-move` adds synthetic mouse movement over charts under a fixed
+screen position, allowing the hover-disabled control to exercise hover work.
+It restores page-only chart
+events and the original scroll position; it does not save settings. Use
+`--scenarios dashboard_scroll --samples 3 --output-json /tmp/scroll-profile.json`.
+`--renderer pywebview` opens and closes a temporary native window, so macOS uses
+the Cocoa/WebKit backend. Linux uses GTK and the application's conservative GUI
+environment defaults, preserving explicit operator overrides. On macOS,
+launching the native profiler requires an app-bundled Python interpreter;
+unbundled Python is rejected before opening a GUI to avoid application-association
+prompts. Chromium remains the default.
+For comparisons, match the native report's viewport and pixel scale using
+`--viewport-width`, `--viewport-height`, and `--device-scale-factor` in Chromium.
+Native engines without long-task or CDP counters report those values as unavailable.
+These are scripted main-thread scrolling measurements, not wheel/momentum input
+or compositor FPS tests. Profiling a Pi-hosted page from Samhain measures
+Samhain's renderer and the Pi's serving latency; it does not measure the Pi's
+local display/GPU or its native Qt/GTK webview backend.
+
+### Record actual native scrolling on the Pi
+
+For the real wheel and scrollbar path, enable the opt-in recorder in the normal
+GTK app window. It observes actual input and does not scroll the page or create
+a second window. Keep pywebview at the existing 5.4 pin for the baseline test.
+The current test set is `sensoria-hub-0` (Pi 5), `sensorius-hub-1` (Pi 5), and
+`sensorius-hub-2` (Pi 4); headless `sensorius-hub-3` is excluded.
+
+On each test Pi, add or update only these keys in
+`/home/twfarley/Sensorius/.env`, preserving the rest of that file:
+
+```dotenv
+SENSORIUS_GUI_SCROLL_PROFILE=1
+SENSORIUS_GUI_SCROLL_PROFILE_SECONDS=600
+SENSORIUS_GUI_SCROLL_PROFILE_PATH=/tmp/sensorius-native-scroll.jsonl
+```
+
+After deploying the diagnostic code, use the installation's normal restart
+procedure. Do not launch another hub or another native window for this test.
+The JSONL file is appended from the actual GUI process, so an attached desktop
+and a desktop that owns its hub both use the same recorder. The native process
+must restart to read the new environment values.
+
+Wait for charts to finish loading, then record about 10 seconds idle, 20 seconds
+of wheel scrolling with the pointer over the page background, 20 seconds over
+metric graphs, and 20 seconds dragging the native vertical scrollbar. Leave a
+few idle seconds between phases and note their wall-clock times. Scroll the
+dashboard rather than the forecast synopsis's internal text area. The recorder
+stops automatically after ten minutes, allowing the three Pis to be tested in
+turn; remove the enable key or set it to `0`
+before the next normal restart to disable future recordings.
+
+The file records the actual pywebview and WebKitGTK versions, rendering flags,
+wheel/scroll events, hover-coordinate-hook calls and time, JavaScript frame gaps,
+GTK main-loop heartbeat gaps, and GTK after-paint gaps. Presentation intervals
+are included only when GDK supplies completed presentation timestamps; missing
+timestamps are not treated as compositor FPS. Samples include page visibility,
+focus, pending graph loads, and JavaScript snapshot age. A stale JavaScript
+sample alongside a responsive GTK heartbeat separates a WebProcess stall from
+a stalled GTK loop. Hover-hook time excludes Chart.js's later tooltip drawing.
+Input listeners are passive; rendering flags, settings and chart interaction
+options remain as configured. Diagnostic instrumentation has some overhead and
+is disabled by default.
+
+The native GTK dashboard on Raspberry Pi automatically omits box shadows on
+metric and switch tiles, including their decorative contents. This applies to
+both Bookworm and Trixie and leaves backgrounds, rounded corners, graphs and
+ordinary browser styling intact. The dashboard checks both the Pi host identity
+and pywebview's GTK bridge; no rendering flags or dependency upgrades are needed.
+Repeated automated tests on the Bookworm Pi 5 identified these shadows as a
+major scroll repaint cost. Operator verification confirmed the scroll
+sluggishness was resolved on Pi 5 with Bookworm, Pi 5 with Trixie, and Pi 4 with
+Trixie. Refresh an existing native window
+to load updated dashboard assets; a backend restart is needed to serve a new
+application version.
+
 Sensor Settings opens with its editable fields first. The dashboard requests
 `/edit-sensor?embed=1&defer_details=1`; Sensor Info statistics and System
 Calibration reference choices are fetched only when their panes are opened.

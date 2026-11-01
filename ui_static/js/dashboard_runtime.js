@@ -22,6 +22,11 @@ const weatherForecastEnabled = config.weatherForecastEnabled;
 window.__weatherForecastEnabled = weatherForecastEnabled;
 window.__weatherForecastProvider = weatherForecastProvider;
 const isPiPlatform = config.isPiPlatform;
+function applyNativePiRendering() {
+  document.documentElement.classList.toggle('native-pi-window', Boolean(isPiPlatform && window.pywebview?.platform === 'gtkwebkit2'));
+}
+window.addEventListener('pywebviewready', applyNativePiRendering, { once: true });
+applyNativePiRendering();
 const lastTimestamps = {};
 let lastSensorTimestampChangeMs = Date.now();
 const sensorTimestampStaleMs = 75000;
@@ -3516,12 +3521,17 @@ async function showMicrographForContainer(container, options = {}) {
       }
     }
 
+    if (Chart.Interaction?.modes && !Chart.Interaction.modes.micrographData) {
+      Chart.Interaction.modes.micrographData = (chart, event, options, useFinalPosition) =>
+        Chart.Interaction.modes.index(chart, event, options, useFinalPosition).filter(item => item.datasetIndex === 0);
+    }
     const chartOptions = {
       responsive: false,
       animation: false,
+      interaction: { mode: 'micrographData', axis: 'x', intersect: false, includeInvisible: true },
       plugins: {
         legend: { display: false },
-        tooltip: { enabled: true, callbacks: { label: (context) => {
+        tooltip: { enabled: true, filter: (item) => item.datasetIndex === 0, callbacks: { label: (context) => {
           const num = Number(context.parsed?.y);
           if (!Number.isFinite(num)) return '';
           const text = isBarometricPressure ? num.toFixed(1) : Number(num.toFixed(2)).toString();
@@ -3591,7 +3601,8 @@ async function showMicrographForContainer(container, options = {}) {
         borderDash: [6, 3],
         order: 2,
         pointRadius: sparseRadius,
-        pointHoverRadius: Math.max(3, sparseRadius),
+        pointHoverRadius: 0,
+        pointHitRadius: 0,
         tension: 0.3
       });
     }
@@ -3605,6 +3616,7 @@ async function showMicrographForContainer(container, options = {}) {
           labels: labels,
           datasets: datasets
         },
+        plugins: [micrographPointerPosition],
         options: chartOptions
       });
       chartMap.set(canvas, chart);
@@ -3629,6 +3641,25 @@ async function showMicrographForContainer(container, options = {}) {
   }
 }
 const chartMap = new WeakMap();
+const micrographPointerPosition = {
+  id: 'micrographPointerPosition',
+  beforeEvent(chart, args) {
+    const event = args.event;
+    if (!['mousemove', 'touchstart', 'touchmove'].includes(event.type)) return;
+    const pointer = event.native?.touches?.[0] || event.native;
+    const rect = chart.canvas.getBoundingClientRect();
+    if (pointer && Number.isFinite(pointer.clientX) && Number.isFinite(pointer.clientY) && rect.width > 0 && rect.height > 0) {
+      event.x = (pointer.clientX - rect.left) * chart.width / rect.width;
+      event.y = (pointer.clientY - rect.top) * chart.height / rect.height;
+    }
+    const area = chart.chartArea;
+    if (!area || !Number.isFinite(event.x) || !Number.isFinite(event.y)) return;
+    if (event.x < area.left - 6 || event.x > area.right + 6 || event.y < area.top - 6 || event.y > area.bottom + 6) return;
+    event.x = Math.max(area.left, Math.min(area.right, event.x));
+    event.y = Math.max(area.top, Math.min(area.bottom, event.y));
+    args.inChartArea = true;
+  }
+};
 window.materializeMetricVisual = function(container) {
   if (!container || container.dataset.lazyMetricVisual !== '1') return false;
   const sensor = String(container.dataset.sensor || '').trim();

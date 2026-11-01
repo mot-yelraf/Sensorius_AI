@@ -472,6 +472,8 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
             y=_int_env("SENSORIUS_GUI_Y", 48),
             resizable=True, frameless=False, confirm_close=True
         )
+        from .saiNativeScrollProfile import attach_native_scroll_profile
+        attach_native_scroll_profile(window)
         if DEBUG:
             printDM(f"Web view created at {initial_url}", location="saiWebServer")
         return window
