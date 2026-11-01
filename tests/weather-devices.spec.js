@@ -23,6 +23,7 @@ for (const width of [1440, 390]) {
     await modal.getByRole('button', { name: 'Add Device', exact: true }).click();
     if (width < 700) await modal.locator('#add-weather-section > summary').click();
     await modal.locator('#add-acurite-section summary').click();
+    await expect(modal.locator('#add-acurite-section')).toContainText('USB data requests follow this interval.');
     await expect(modal.locator('#acurite-mode-help')).toContainText('automatically');
     await modal.locator('#acurite-model').selectOption('02032');
     await expect(modal.locator('#acurite-mode-help')).toContainText('MODE 4');
@@ -83,6 +84,8 @@ for (const width of [1440, 390]) {
         await modal.locator('#davis-port').fill('/dev/cu.usbserial-123');
         await modal.locator('#davis-baud-rate').selectOption('9600');
       } else {
+        await expect(modal.locator('label[for="oregon-poll-interval"]')).toHaveText('Snapshot interval (seconds)');
+        await expect(modal.locator('#add-oregon-section')).toContainText('Incoming USB reports are received continuously.');
         await modal.locator('#oregon-model').selectOption('WMR88A');
         await modal.locator('#oregon-usb-serial').fill('oregon-123');
       }

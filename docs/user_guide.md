@@ -984,7 +984,8 @@ family, optionally enter its USB serial, select the retrieval interval, and choo
 with a USB mode setting; the 01536 family uses it automatically. Connect the console
 to the Sensorius host and close other applications reading its USB interface.
 
-USB sampling continues every 18 seconds to capture alternating weather reports.
+USB requests follow the configured retrieval interval. Alternating weather fields
+may need two retrievals to arrive; the same interval also controls saved snapshots.
 The console becomes a separate station on the dashboard alongside Ecowitt and
 Nodus devices. Ecowitt and AcuRite dashboard headers show only the final six
 characters of their UUID; their full IDs remain in settings and history. For example,

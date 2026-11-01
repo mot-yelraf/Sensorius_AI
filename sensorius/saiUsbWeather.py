@@ -61,6 +61,7 @@ class UsbWeatherIngest:
         self._lock = asyncio.Lock()
         self._baseline = None
         self._last_write = float("-inf")
+        self._last_attempt = float("-inf")
         self._sensor_id = self._get("SENSOR_ID", "")
         self._identity = None
         self._error = ""
@@ -73,10 +74,16 @@ class UsbWeatherIngest:
         return SimpleNamespace(
             davis_enabled=bool(self._get("ENABLED", False)),
             davis_port=self._get("PORT", ""), davis_baud_rate=self._get("BAUD_RATE", 19200),
+            davis_poll_interval_sec=self.poll_interval_sec,
             wmr100_enabled=bool(self._get("ENABLED", False)),
             wmr100_usb_serial=self._get("USB_SERIAL", ""), wmr100_model=self._get("MODEL", "WMR100"),
             timezone=self.settings.get_setting("Time", "TIMEZONE", "UTC"),
         )
+
+    @property
+    def poll_interval_sec(self) -> float:
+        """Return the configured acquisition or stream snapshot interval."""
+        return max(60, min(3600, float(self._get("POLL_INTERVAL_SEC", 60))))
 
     def configure(self, payload):
         """Validate the complete family configuration before writing through settings."""
@@ -106,6 +113,7 @@ class UsbWeatherIngest:
         self.adapter.reset()
         self._health = StationReportingHealth(self.data_logger)
         self._baseline, self._last_write, self._identity = None, float("-inf"), None
+        self._last_attempt = float("-inf")
         self._error = ""
 
     async def save_configuration(self, payload):
@@ -146,6 +154,7 @@ class UsbWeatherIngest:
     def status(self):
         """Report safe local health; settings reads never trigger hardware probes."""
         config = self._configuration()
+        self.adapter.settings.davis_poll_interval_sec = config.davis_poll_interval_sec
         snapshot = self.adapter.status()
         if vars(config) != vars(self.adapter.settings):
             snapshot.update(state="offline", connected=False, observation_fresh=False, sensors=[])
@@ -175,8 +184,8 @@ class UsbWeatherIngest:
                 self._baseline = None
             if observation is None:
                 return False
-            interval = max(60, min(3600, float(self._get("POLL_INTERVAL_SEC", 60))))
-            if time.monotonic() - self._last_write < interval:
+            interval = self.poll_interval_sec
+            if self.kind == "oregon" and time.monotonic() - self._last_write < interval:
                 return False
             sensor_id = self.kind + "-" + hashlib.sha256(observation.source_id.encode()).hexdigest()[:16]
             if self._identity != sensor_id:
@@ -213,15 +222,23 @@ class UsbWeatherIngest:
         """Retry acquisition under the existing supervisor and release handles on exit."""
         try:
             while True:
+                self._last_attempt = time.monotonic()
                 try:
                     await self.poll_once()
                 except Exception as exc:
                     if str(exc) != self._error:
                         printDM(f"{self.label}: {exc}", location=__name__)
                     self._error = str(exc)
-                if self.supervisor:
-                    self.supervisor.feedthedogs(self.label)
-                delay = 10 if self.kind == "davis" else 0.05 if self._get("ENABLED", False) and not self.adapter.status().get("last_error") else 2
-                await asyncio.sleep(delay)
+                while True:
+                    if self.supervisor:
+                        self.supervisor.feedthedogs(self.label)
+                    if self.kind == "oregon":
+                        delay = 0.05 if self._get("ENABLED", False) and not self.adapter.status().get("last_error") else 2
+                        await asyncio.sleep(delay)
+                        break
+                    remaining = self.poll_interval_sec - (time.monotonic() - self._last_attempt)
+                    if remaining <= 0:
+                        break
+                    await asyncio.sleep(min(9, remaining))
         finally:
             await asyncio.to_thread(self.adapter.reset)

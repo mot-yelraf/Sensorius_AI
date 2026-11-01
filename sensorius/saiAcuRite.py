@@ -13,7 +13,7 @@ from .saiUtils import printDM
 from .saiSensorSettingsManager import SensorSettingsManager
 from .weather_adapters.acurite_calibration import calibrate_acurite_measurements, system_altitude_meters
 from .saiWeatherStation import ensure_station_settings, StationReportingHealth
-from .weather_adapters.acurite import AcuRiteUsbReader, SAMPLE_SECONDS
+from .weather_adapters.acurite import AcuRiteUsbReader
 from .weather_adapters.acurite_models import CONSOLE_PROFILES, console_profile
 from .weather_adapters.observations import Observation, ChannelCapability, persist_observation
 
@@ -35,6 +35,7 @@ class AcuRiteUsbIngest:
         self._health = StationReportingHealth(data_logger)
         self._baseline = None
         self._last_write = float("-inf")
+        self._last_attempt = float("-inf")
         self._sensor_id = ""
         self._settings_identity = None
         self._error = ""
@@ -47,8 +48,15 @@ class AcuRiteUsbIngest:
             acurite_enabled=bool(get("ENABLED", False)),
             acurite_usb_serial=str(get("USB_SERIAL", "") or "").strip(),
             acurite_model=console_profile(get("MODEL", "01536")).key,
+            acurite_poll_interval_sec=self.poll_interval_sec,
             timezone="UTC",
         )
+
+    @property
+    def poll_interval_sec(self) -> float:
+        """Return the configured USB acquisition interval, including live edits."""
+        return max(60, min(3600, float(self.settings.get_setting(
+            "AcuRite", "POLL_INTERVAL_SEC", 60, reload_if_changed=True))))
 
     def configure(self, payload):
         """Validate all input before saving and enable acquisition last."""
@@ -76,6 +84,7 @@ class AcuRiteUsbIngest:
         self.settings.save_settings()
         self._baseline = None
         self._last_write = float("-inf")
+        self._last_attempt = float("-inf")
 
     def disable(self):
         """Stop acquisition while retaining station settings and historical readings."""
@@ -115,6 +124,7 @@ class AcuRiteUsbIngest:
     def status(self) -> dict:
         """Expose safe local connectivity and sensor freshness diagnostics."""
         config = self._configuration()
+        self.adapter.settings.acurite_poll_interval_sec = config.acurite_poll_interval_sec
         snapshot = self.adapter.status()
         enabled = config.acurite_enabled
         profile = console_profile(config.acurite_model)
@@ -176,9 +186,7 @@ class AcuRiteUsbIngest:
                 self._baseline = None
             if observation is None:
                 return False
-            interval = max(60, min(3600, float(self.settings.get_setting("AcuRite", "POLL_INTERVAL_SEC", 60))))
-            if time.monotonic() - self._last_write < interval:
-                return False
+            interval = self.poll_interval_sec
             identity = self.adapter.device_identity
             sensor_id = "acurite-" + hashlib.sha256(identity.encode()).hexdigest()[:16]
             profile = console_profile(self.adapter.settings.acurite_model)
@@ -219,6 +227,7 @@ class AcuRiteUsbIngest:
     async def run(self) -> None:
         """Retry USB acquisition under the existing watchdog and supervisor."""
         while True:
+            self._last_attempt = time.monotonic()
             try:
                 await self.poll_once()
             except Exception as exc:
@@ -226,7 +235,10 @@ class AcuRiteUsbIngest:
                 if message != self._error:
                     printDM(f"AcuRite: {message}", location=__name__)
                 self._error = message
-            for delay in (9, SAMPLE_SECONDS - 9):
+            while True:
                 if self.supervisor:
                     self.supervisor.feedthedogs(TASK_NAME)
-                await asyncio.sleep(delay)
+                remaining = self.poll_interval_sec - (time.monotonic() - self._last_attempt)
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(9, remaining))

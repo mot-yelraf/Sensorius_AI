@@ -1761,7 +1761,7 @@
                     <div class="field-stack">
                       <label for="acurite-poll-interval">Data retrieval interval (seconds)</label>
                       <input id="acurite-poll-interval" type="number" min="60" max="3600" step="1" value="60">
-                      <div class="detail">Live USB sampling continues every 18 seconds to capture alternating reports.</div>
+                      <div class="detail">USB data requests follow this interval. Alternating outdoor fields may need two retrievals to arrive.</div>
                     </div>
                   </div>
                   <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
@@ -1794,7 +1794,7 @@
                   <div class="field-grid-stack">
                     <div class="field-stack"><label for="oregon-model">Console model</label><select id="oregon-model"><option>WMR100</option><option>WMR100N</option><option>WMR88</option><option>WMR88A</option><option>WMR180</option><option>WMR180A</option><option>WMRS200</option></select></div>
                     <div class="field-stack"><label for="oregon-usb-serial">USB serial number (optional)</label><input id="oregon-usb-serial" type="text" maxlength="128" autocomplete="off"><div class="detail">Leave blank for one console. Specify a serial number when several are attached.</div></div>
-                    <div class="field-stack"><label for="oregon-poll-interval">Data retrieval interval (seconds)</label><input id="oregon-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
+                    <div class="field-stack"><label for="oregon-poll-interval">Snapshot interval (seconds)</label><input id="oregon-poll-interval" type="number" min="60" max="3600" step="1" value="60"><div class="detail">Incoming USB reports are received continuously. This interval controls saved weather snapshots.</div></div>
                   </div>
                   <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
                     <button type="button" class="button neutral" id="btn-oregon-disable">Disable</button>
