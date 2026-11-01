@@ -20,7 +20,6 @@ from sensorius.weather_adapters.observations import ChannelCapability, Observati
 
 
 BAUD_RATES = (1200, 2400, 4800, 9600, 14400, 19200)
-SAMPLE_SECONDS = 10
 MAX_AGE_SECONDS = 120
 OUTDOOR_FIELDS = (
     "temperature",
@@ -388,11 +387,16 @@ class DavisVueAdapter:
             self.settings.davis_enabled
             and self._snapshot is not None
             and self._config == self._connection()
-            and clock - self._sample_clock <= MAX_AGE_SECONDS
+            and clock - self._sample_clock <= self.max_age_seconds
         )
 
+    @property
+    def max_age_seconds(self) -> float:
+        """Keep scheduled samples fresh between configured acquisition attempts."""
+        return max(MAX_AGE_SECONDS, 2 * getattr(self.settings, "davis_poll_interval_sec", 60))
+
     def _radio_fresh(self, clock):
-        return self._connected(clock) and clock - self._radio_clock <= MAX_AGE_SECONDS
+        return self._connected(clock) and clock - self._radio_clock <= self.max_age_seconds
 
     def read(self) -> Observation | None:
         """Return each snapshot once, suppressing outdoor fields until RF progress is verified."""

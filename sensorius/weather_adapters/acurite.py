@@ -23,7 +23,6 @@ from .metrics import FIELD_NAMES, normalize_acurite
 from .diagnostics import report_error
 USB_VENDOR = 0x24C0
 USB_PRODUCT = 0x0003
-SAMPLE_SECONDS = 18
 CONSOLE_SECONDS = 60
 MAX_AGE_SECONDS = 120
 USB_READ_FAILURE_LIMIT = 3
@@ -300,7 +299,7 @@ def console_transport(serial: str = ""):
 
 
 class AcuRiteUsbReader:
-    """Sample alternating reports independently of the per-station history interval."""
+    """Cache alternating reports acquired at the configured station interval."""
 
     def __init__(self, settings: Any, transport: Any = None) -> None:
         self.settings = settings
@@ -322,6 +321,11 @@ class AcuRiteUsbReader:
         self._outdoor_error = ""
         self._usb_read_failures = 0
         self._invalid_outdoor_reports = 0
+
+    @property
+    def max_age_seconds(self) -> float:
+        """Allow alternating fields to span two configured acquisition intervals."""
+        return max(MAX_AGE_SECONDS, 2 * getattr(self.settings, "acurite_poll_interval_sec", 60))
 
     @property
     def device_identity(self) -> str:
@@ -446,7 +450,7 @@ class AcuRiteUsbReader:
             samples = {
                 key: sample
                 for key, sample in self._samples.items()
-                if clock - sample[2] <= MAX_AGE_SECONDS
+                if clock - sample[2] <= self.max_age_seconds
             }
             if not samples:
                 return None
@@ -456,7 +460,7 @@ class AcuRiteUsbReader:
             self._last_emitted = timestamp
             counter = (
                 self._counter
-                if self._counter and clock - self._counter[2] <= MAX_AGE_SECONDS
+                if self._counter and clock - self._counter[2] <= self.max_age_seconds
                 else None
             )
             return Observation(
@@ -491,7 +495,7 @@ class AcuRiteUsbReader:
                 enabled
                 and self._connected
                 and self._signal > 0
-                and monotonic() - self._last_outdoor <= MAX_AGE_SECONDS
+                and monotonic() - self._last_outdoor <= self.max_age_seconds
             )
             battery = self._battery if fresh else "UNKNOWN"
             profile = console_profile(self.settings.acurite_model)
@@ -514,7 +518,7 @@ class AcuRiteUsbReader:
                 "station": {
                     "reporting": fresh, "battery_status": battery,
                     "signal": self._signal if enabled and self._connected and self._signal_at is not None
-                    and monotonic() - self._signal_at <= MAX_AGE_SECONDS else None,
+                    and monotonic() - self._signal_at <= self.max_age_seconds else None,
                 },
                 "sensors": [
                     {

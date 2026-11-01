@@ -52,7 +52,8 @@ Optional battery/inventory metadata does not determine Ecowitt reporting uptime.
 AcuRite confirms USB access failure on the third consecutive failed sample and
 rejects outdoor data after two consecutive invalid outdoor reports. A valid
 access/report resets its corresponding counter. Zero RF signal and the existing
-120-second outdoor freshness limit remain authoritative during tolerated failures.
+outdoor freshness limit (the greater of 120 seconds or twice the configured
+retrieval interval) remain authoritative during tolerated failures.
 
 An `Observation` has a source ID, aware observation/receipt timestamps converted
 to UTC, finite numeric measurements and optional explicit rain policy/counter
@@ -72,8 +73,9 @@ and automation use. Display preferences do not change stored units.
 `EcowittGatewayIngest.read()` implements the async contract with the existing LAN
 transport and recovery path. Its `poll_once()` retains existing daily rain and
 restart behavior. `AcuRiteUsbIngest.read()` wraps the bounded PC Connect reader in
-`asyncio.to_thread`; its supervisor samples every 18 seconds and persists at the
-configured retrieval interval (rounded up to a sample boundary). The internal
+`asyncio.to_thread`; its supervisor requests USB data at the configured retrieval
+interval, including failed attempts, and persists each usable acquisition. Live
+interval changes are checked during watchdog-friendly waits. The internal
 USB reader owns per-field freshness and RF-loss invalidation. Shared
 `persist_observation()` calls `saiDataLogger.log_readings`, preserving listeners,
 Home Assistant, farmOS and history. AcuRite sensor offsets are loaded from sensor TOML and applied to fresh snapshots
@@ -148,7 +150,8 @@ A Vue console without a datalogger does not provide this USB serial interface.
 Davis support reads live LOOP/LOOP2 packets, configuration and reception counters;
 it does not change console time, calibration, pairing or archives. Outdoor Vue
 fields remain unavailable until the received-packet counter advances, then expire
-after 120 seconds without progress. Oregon samples expire individually after
+after the greater of 120 seconds or twice the configured interval without
+progress. Oregon samples expire individually after
 180 seconds. Indoor/pressure packets cannot refresh stale outdoor readings.
 
 Open **General Settings > Add Device > Weather Station**, then expand the console
@@ -157,8 +160,13 @@ section. Davis requires a local port, for example `/dev/ttyUSB0` on Linux/Pi,
 Oregon requires selecting a supported model; leave the USB serial blank when
 only one matching console is attached. Close competing readers first. Save to
 enable acquisition without restarting Sensorius. Disable releases USB ownership
-while retaining history. Retrieval intervals are 60–3600 seconds; Davis samples
-every 10 seconds and Oregon continuously drains bounded USB report batches.
+while retaining history. Retrieval intervals are 60–3600 seconds. AcuRite and
+Davis device requests follow their configured intervals, including retries.
+Oregon continuously drains bounded USB report batches because the console pushes
+a stream; its **Snapshot interval** controls saved snapshots rather than device
+requests. Ecowitt gateway weather polls and WeeWX archive imports also use their
+configured retrieval intervals. MQTT-backed weather reports arrive at the
+publisher's cadence; the hub does not poll those devices for readings.
 
 All host platforms use the existing PySerial/PyUSB dependencies. Oregon uses
 native HIDAPI in a bounded worker on macOS/Windows; retain the operating system's

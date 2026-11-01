@@ -16,8 +16,11 @@ Close PC Connect, WeeWX and any other process holding this console's USB handle.
 
 These devices aggregate outdoor sensors over RF. Live fields include outdoor
 temperature/RH, wind speed/direction, indoor temperature and uncorrected Station Pressure.
-Alternating reports are sampled every 18 seconds and expire individually after
-120 seconds. No live indoor humidity or measured gust is exposed by this adapter.
+USB requests follow the configured retrieval interval, including retries; the
+setting controls acquisition as well as saved snapshots. Changes apply without
+a restart. Alternating outdoor reports may need two retrievals to populate all
+fields. Fields expire individually after the greater of 120 seconds or twice
+the configured interval. No live indoor humidity or measured gust is exposed by this adapter.
 Unknown pressure calibration is rejected without discarding valid outdoor data.
 See the [adapter contract](weather_adapters.md) for rain semantics and extension
 instructions. All profiles need physical model/platform validation.
@@ -32,7 +35,7 @@ the existing reader snapshot and do not probe USB from a web request.
 
 After a healthy observation, the reader tolerates two consecutive USB read/access
 failures and marks the connection failed on the third. These are attempts on the
-normal 18-second sampling cycle, with no burst of immediate USB retries. Any
+configured retrieval cycle, with no burst of immediate USB retries. Any
 successful USB access resets that counter. One invalid outdoor report is
 discarded; two consecutive invalid outdoor reports invalidate the outdoor data.
 A valid outdoor report resets the invalid-report counter. The status endpoint
@@ -41,7 +44,8 @@ includes `usb_read_failures` and `invalid_outdoor_reports` for diagnosis.
 Tolerated failures retain previously valid samples with their original timestamps;
 they do not refresh outdoor sample age or use rejected report values. Reported
 zero RF signal still invalidates outdoor data immediately, and outdoor samples
-still expire after 120 seconds without a valid report.
+still expire after the greater of 120 seconds or twice the configured interval
+without a valid report.
 
 When a failure is confirmed by these rules, the dashboard indicator becomes
 amber while acquisition retries. A failure lasting at least 60
