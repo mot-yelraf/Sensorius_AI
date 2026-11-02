@@ -9,7 +9,7 @@ import json
 from sensorius import saiHtml
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ('js/dashboard_runtime.js', 'js/graph_workspace.js', 'css/dashboard_cards.css',
+ASSETS = ('js/dashboard_runtime.js', 'js/graph_workspace.js', 'js/metric_visuals.js', 'css/metric_tile_finishes.css', 'css/dashboard_cards.css',
           'css/dashboard_notifications.css', 'css/graph_workspace.css')
 
 
@@ -24,6 +24,8 @@ def with_local_assets(chunks):
     """Include only extracted assets actually referenced by this rendered page."""
     markup = ''.join(chunks)
     assets = [asset for asset in ASSETS if '/ui_static/' + asset in markup]
+    if 'js/dashboard_runtime.js' in assets:
+        assets.append('js/metric_visuals.js')
     return [markup, '\n', '\n'.join((ROOT / 'ui_static' / asset).read_text() for asset in assets)]
 
 

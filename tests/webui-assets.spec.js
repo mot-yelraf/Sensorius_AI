@@ -24,10 +24,10 @@ test('rendered scripts and extracted application assets contain no JavaScript co
       checkScript(script.source, script.type === 'module' ? 'module' : 'script');
     }
   }
-  for (const name of ['dashboard_runtime.js', 'graph_workspace.js']) {
+  for (const name of ['dashboard_runtime.js', 'graph_workspace.js', 'metric_visuals.js']) {
     const asset = await request.get(`/ui_static/js/${name}`);
     expect(asset.ok()).toBeTruthy();
-    checkScript(await asset.text(), name === 'dashboard_runtime.js' ? 'module' : 'script');
+    checkScript(await asset.text(), name === 'graph_workspace.js' ? 'script' : 'module');
   }
   const comments = [];
   parse('const x = 1; // forbidden\n/* forbidden */ const y = 2;', { ecmaVersion: 'latest', onComment: comments });

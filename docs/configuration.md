@@ -335,10 +335,16 @@ Runtime notes:
   `garden`, `island`, `river`, or `desert`. `pollinator` is the default. A
   selected custom Caelus image is stored as
   `custom:<theme_collection_id>:<image_id>`.
+- `[WeatherForecast].METRIC_TILE_STYLE` independently selects the Caelus Weather
+  Station metric finish: `Theme` (default), `Chrome`, `Brass`, or
+  `Mahogany & Brass` (shown as **Brass & Mahogany**). It does not change the
+  sensor’s `[Display].METRIC_TILE_STYLE` used by the Sensorius Dashboard.
 - `[WeatherForecast].CURRENT_SENSOR_ID` selects the Sensorius/Nodus sensor whose
   latest logged values populate Current Readings. The panel follows that
   sensor's ordered `[Display].METRIC_1` through `METRIC_6` settings. An empty
-  value leaves the Current Readings panel unbound.
+  value leaves the Current Readings panel unbound. The Weather Station tiles
+  below the Caelus map and Lunar Calendar show all known metrics for this sensor,
+  with the configured six first, and use the same 24-hour statistics as Sensorius.
 - `[Display].background_theme` selects the Sensorius dashboard background:
   `leaf` (the default repeating SVG), `root`, `leaf_crop`, `flower`, or `fruit`.
   The four crop themes use greenhouse photography and pair metric and switch

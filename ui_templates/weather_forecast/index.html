@@ -6,6 +6,11 @@
   <meta name="theme-color" content="#123c45">
   <title>Weather Forecast {{ app_version }}</title>
   <link rel="stylesheet" href="/ui_static/weather_forecast/app.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/ui_static/weather_forecast/metrics.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/ui_static/css/metric_tile_finishes.css?v={{ app_version }}">
+  <script src="https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script type="module" src="/ui_static/weather_forecast/metrics.js?v={{ app_version }}"></script>
   <script src="/ui_static/weather_forecast/moon.js?v={{ app_version }}" defer></script>
   <script src="/ui_static/weather_forecast/app.js?v={{ app_version }}" defer></script>
 </head>
@@ -158,6 +163,18 @@
         </div>
       </section>
     </section>
+    <section class="station-metrics" aria-labelledby="stationMetricsHeading">
+      <h2 class="station-metrics-heading" id="stationMetricsHeading">
+        <button type="button" class="station-metrics-toggle" id="stationMetricsToggle" aria-controls="stationMetricGrid" aria-expanded="false" disabled>
+          <span class="station-metrics-collapse-icon" aria-hidden="true">▶</span>
+          <span id="stationMetricsLabel">Weather Station metrics</span>
+        </button>
+      </h2>
+      <p class="station-metrics-hint">Select a tile to cycle Gauge → 24Hr Graph → 6Hr Graph.</p>
+      <div class="station-metric-grid" id="stationMetricGrid"></div>
+      <p id="stationMetricsEmpty" hidden>Choose a Current Readings sensor to show its available station metrics here.</p>
+    </section>
+    <script type="application/json" id="caelus-metrics-config">{{ latest | tojson }}</script>
   </main>
 
 
@@ -176,6 +193,8 @@
         <button type="button" data-caelus-preview-theme="river">Forest River</button>
         <button type="button" data-caelus-preview-theme="desert">Desert Bloom</button>
       </div>
+      <button type="button" class="caelus-theme-return" id="saveCaelusThemeBtn">Save</button>
+      <span id="caelusThemeSaveStatus" role="status" hidden></span>
       <button type="button" class="caelus-theme-return" id="closeCaelusThemeBtn">Return to Forecast</button>
     </div>
   </section>

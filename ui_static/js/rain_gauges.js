@@ -45,16 +45,25 @@ export function startRainGauges(gaugeConfig, initGauge) {
         const response = await fetch('/api/rain-climate', { signal: AbortSignal.timeout(10000), cache: 'no-store' });
         if (!response.ok) throw new Error('Rain climate request failed');
         const payload = await response.json();
+        if (stopped) return;
         apply(payload);
         if (payload.status === 'warming') delay = 3000;
       } catch (_) {
+        if (stopped) return;
         apply({ status: 'unavailable' });
       }
     }
     if (!stopped) timer = setTimeout(refresh, delay);
   }
-  addEventListener('pagehide', () => { stopped = true; clearTimeout(timer); });
-  addEventListener('pageshow', event => { if (event.persisted) { stopped = false; refresh(); } });
+  function onPageHide() { stopped = true; clearTimeout(timer); }
+  function onPageShow(event) { if (event.persisted) { stopped = false; refresh(); } }
+  addEventListener('pagehide', onPageHide);
+  addEventListener('pageshow', onPageShow);
   apply({ status: 'warming' });
   refresh();
+  return () => {
+    onPageHide();
+    removeEventListener('pagehide', onPageHide);
+    removeEventListener('pageshow', onPageShow);
+  };
 }

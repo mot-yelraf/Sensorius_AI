@@ -1189,6 +1189,12 @@
                     </div>
                     {% endfor %}
                   </fieldset>
+                  <label for="weather_forecast_metric_tile_style">Caelus Metric Tile Style</label>
+                  <select id="weather_forecast_metric_tile_style" name="weather_forecast_metric_tile_style">
+                    {% for style in ['Theme', 'Chrome', 'Brass', 'Mahogany & Brass'] %}
+                    <option value="{{ style }}" {% if weather_forecast_metric_tile_style | default('Theme') == style %}selected{% endif %}>{{ 'Brass & Mahogany' if style == 'Mahogany & Brass' else style }}</option>
+                    {% endfor %}
+                  </select>
                   <div class="theme-section-toolbar"><button type="button" class="button green open-custom-theme" data-theme-section="caelus">Custom Theme</button></div>
                 </div>
               </details>
@@ -1744,7 +1750,6 @@
               <details class="integration-block" id="add-acurite-section" data-runtime-section="add-acurite">
                 <summary>AcuRite USB Console</summary>
                 <div class="integration-block-content">
-                  <div class="detail">Connect a PC Connect console by USB to this Sensorius host. Close other USB readers, including WeeWX or PC Connect.</div>
                   <div class="field-grid-stack">
                     <div class="field-stack">
                       <label for="acurite-model">Console family</label>
@@ -1756,12 +1761,10 @@
                         <option value="01525">01525</option>
                         <option value="02032">02032 / 02033 / 01093 / 06037</option>
                       </select>
-                      <div id="acurite-mode-help" class="detail">01536-RX / 06056 uses USB mode 4 automatically.</div>
                     </div>
                     <div class="field-stack">
                       <label for="acurite-usb-serial">USB serial number (optional)</label>
                       <input id="acurite-usb-serial" type="text" maxlength="128" autocomplete="off">
-                      <div class="detail">Leave blank for one console. Select a serial number when multiple consoles are attached.</div>
                     </div>
                     <div class="field-stack">
                       <label for="acurite-poll-interval">Data retrieval interval (seconds)</label>
@@ -1772,14 +1775,12 @@
                       <button type="button" class="button green" id="btn-acurite-save">Save Console</button>
                     </div>
                   </div>
-                  <div class="detail">USB data requests follow this interval. Alternating outdoor fields may need two retrievals to arrive.</div>
                   <div id="acurite-status" class="detail" aria-live="polite"></div>
                 </div>
               </details>
               <details class="integration-block" id="add-davis-section" data-runtime-section="add-davis">
                 <summary>Davis Vue USB Console</summary>
                 <div class="integration-block-content">
-                  <div class="detail">Requires a Vantage Vue console with a compatible USB serial datalogger and one Vue ISS transmitter. Match the console baud rate and leave setup screens. Close WeatherLink, WeeWX and other serial readers. Outdoor readings appear after reception progress is verified.</div>
                   <div class="field-grid-stack">
                     <div class="field-stack"><label for="davis-port">USB datalogger serial port</label><input id="davis-port" type="text" maxlength="256" placeholder="/dev/cu.usbserial-123 or COM3" autocomplete="off"></div>
                     <div class="field-stack"><label for="davis-baud-rate">Console baud rate</label><select id="davis-baud-rate"><option value="1200">1200</option><option value="2400">2400</option><option value="4800">4800</option><option value="9600">9600</option><option value="14400">14400</option><option value="19200" selected>19200</option></select></div>
@@ -1795,17 +1796,15 @@
               <details class="integration-block" id="add-oregon-section" data-runtime-section="add-oregon">
                 <summary>Oregon Scientific USB Console</summary>
                 <div class="integration-block-content">
-                  <div class="detail">Connect a supported WMR100-family console to this Sensorius host. Close WeeWX and other USB readers. Uses native HID on macOS/Windows and libusb on Linux/Pi. Other Oregon protocols, including WMR200 and WMR300, are not supported.</div>
                   <div class="field-grid-stack">
                     <div class="field-stack"><label for="oregon-model">Console model</label><select id="oregon-model"><option>WMR100</option><option>WMR100N</option><option>WMR88</option><option>WMR88A</option><option>WMR180</option><option>WMR180A</option><option>WMRS200</option></select></div>
-                    <div class="field-stack"><label for="oregon-usb-serial">USB serial number (optional)</label><input id="oregon-usb-serial" type="text" maxlength="128" autocomplete="off"><div class="detail">Leave blank for one console. Specify a serial number when several are attached.</div></div>
+                    <div class="field-stack"><label for="oregon-usb-serial">USB serial number (optional)</label><input id="oregon-usb-serial" type="text" maxlength="128" autocomplete="off"></div>
                     <div class="field-stack"><label for="oregon-poll-interval">Snapshot interval (seconds)</label><input id="oregon-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
                     <div class="inline-actions weather-console-actions">
                       <label for="oregon-enabled"><input type="checkbox" id="oregon-enabled"> Enable</label>
                       <button type="button" class="button green" id="btn-oregon-save">Save Console</button>
                     </div>
                   </div>
-                  <div class="detail">Incoming USB reports are received continuously. This interval controls saved weather snapshots.</div>
                   <div id="oregon-status" class="detail" aria-live="polite"></div>
                 </div>
               </details>
@@ -3416,14 +3415,6 @@
     document.getElementById(`btn-${kind}-save`)?.addEventListener("click", () => saveUsbWeatherConsole(kind));
   }
 
-  function updateAcuriteModeHelp() {
-    const automatic = document.getElementById("acurite-model")?.value === "01536";
-    const help = document.getElementById("acurite-mode-help");
-    if (help) help.textContent = automatic
-      ? "01536-RX / 06056 uses USB mode 4 automatically."
-      : "Select USB MODE or PC CONNECT MODE 4 on the console. Recheck after power loss. Sensorius does not change the console mode.";
-  }
-
   async function loadAcuriteStatus() {
     try {
       const resp = await fetch("/acurite/status", { cache: "no-store" });
@@ -3433,7 +3424,6 @@
       document.getElementById("acurite-usb-serial").value = data.usb_serial || "";
       document.getElementById("acurite-poll-interval").value = data.poll_interval_sec || 60;
       document.getElementById("acurite-enabled").checked = data.enabled === true;
-      updateAcuriteModeHelp();
       setStatus("acurite-status", [data.label, data.state, data.last_error].filter(Boolean).join(" | "));
     } catch (e) {
       setStatus("acurite-status", e.message || "Unable to load AcuRite status.");
@@ -3467,7 +3457,6 @@
     }
   }
 
-  document.getElementById("acurite-model")?.addEventListener("change", updateAcuriteModeHelp);
   document.getElementById("btn-acurite-save")?.addEventListener("click", () => saveAcuriteConsole());
 
   let ecowittDiscovery = null;

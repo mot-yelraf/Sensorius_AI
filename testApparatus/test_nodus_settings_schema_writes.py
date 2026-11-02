@@ -7202,3 +7202,97 @@ async def test_sensor_modal_defers_history_and_calibration_queries(tmp_path, mon
         assert 'data-stats-loaded="1"' in response.text
         assert 'data-candidates-state="ready"' in response.text
         assert calls == ["statistics", "calibration", "statistics", "calibration"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("section,theme,target,key", [
+    *[("sensorius", theme, "Display", "background_theme")
+      for theme in ("leaf", "root", "leaf-crop", "leaf_crop", "flower", "fruit")],
+    *[("caelus", theme, "WeatherForecast", "THEME")
+      for theme in ("pollinator", "garden", "island", "river", "desert")],
+    *[("biodynamic", theme, "Display", "biodynamic_calendar_theme")
+      for theme in ("auto", "garden_tools", "spring", "summer", "autumn", "winter")],
+])
+async def test_theme_viewer_saves_only_selected_setting(tmp_path, monkeypatch, section, theme, target, key):
+    initial = {"Display": {"gauge_size": "Small", "background_theme": "leaf"},
+               "WeatherForecast": {"THEME": "pollinator", "PROVIDER": "met_no"}}
+    monkeypatch.setattr(_RouteFakeSaiSettings, "DEFAULT_BASE_DIR", str(tmp_path / "system_settings"), raising=False)
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/themes/selection", data={"section": section, "theme": theme})
+    assert response.status_code == 200
+    expected_theme = "leaf_crop" if theme == "leaf-crop" else theme
+    assert response.json()["theme"] == expected_theme
+    initial.setdefault(target, {})[key] = expected_theme
+    assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("section,theme", [("invalid", "flower"), ("sensorius", "river"), ("caelus", "auto"), ("biodynamic", "custom:missing:image")])
+async def test_theme_viewer_rejects_invalid_selection(tmp_path, monkeypatch, section, theme):
+    initial = {"Display": {"background_theme": "leaf"}}
+    monkeypatch.setattr(_RouteFakeSaiSettings, "DEFAULT_BASE_DIR", str(tmp_path / "system_settings"), raising=False)
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/themes/selection", data={"section": section, "theme": theme})
+    assert response.status_code == 400
+    assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("section,target,key", [
+    ("sensorius", "Display", "background_theme"),
+    ("caelus", "WeatherForecast", "THEME"),
+    ("biodynamic", "Display", "biodynamic_calendar_theme"),
+])
+async def test_theme_viewer_custom_selection_is_scoped_to_its_section(tmp_path, monkeypatch, section, target, key):
+    initial = {"Display": {"background_theme": "leaf", "gauge_size": "Small"},
+               "WeatherForecast": {"THEME": "pollinator", "METRIC_TILE_STYLE": "Brass"}}
+    monkeypatch.setattr(_RouteFakeSaiSettings, "DEFAULT_BASE_DIR", str(tmp_path / "system_settings"), raising=False)
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+    image = io.BytesIO()
+    Image.new("RGB", (640, 360), "#8bbf8b").save(image, "PNG")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/themes",
+            data={"section": section, "name": "Theme endpoint audit", "image_names": "Garden", "palettes": "pale_water"},
+            files={"images": ("garden.png", image.getvalue(), "image/png")},
+        )
+        assert created.status_code == 200
+        selection = created.json()["theme"]["images"][0]["selection"]
+        saved = await client.post("/api/themes/selection", data={"section": section, "theme": selection})
+        assert saved.status_code == 200
+        assert saved.json()["theme"] == selection
+        initial.setdefault(target, {})[key] = selection
+        assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
+        for other in {"sensorius", "caelus", "biodynamic"} - {section}:
+            rejected = await client.post("/api/themes/selection", data={"section": other, "theme": selection})
+            assert rejected.status_code == 400
+            assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("style", ["Theme", "Chrome", "Brass", "Mahogany & Brass"])
+async def test_caelus_metric_finish_saves_independently(tmp_path, monkeypatch, style):
+    initial = {"Display": {"background_theme": "flower", "gauge_size": "Small"},
+               "WeatherForecast": {"THEME": "garden", "METRIC_TILE_STYLE": "Theme"}}
+    monkeypatch.setattr(_RouteFakeSaiSettings, "DEFAULT_BASE_DIR", str(tmp_path / "system_settings"), raising=False)
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-pi-setup", data={"weather_forecast_metric_tile_style": style},
+                                     headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
+    assert response.status_code == 200
+    initial["WeatherForecast"]["METRIC_TILE_STYLE"] = style
+    assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
+
+
+@pytest.mark.asyncio
+async def test_caelus_metric_finish_rejects_invalid_value_without_writes(tmp_path, monkeypatch):
+    initial = {"Display": {"background_theme": "flower"}, "WeatherForecast": {"METRIC_TILE_STYLE": "Brass"}}
+    monkeypatch.setattr(_RouteFakeSaiSettings, "DEFAULT_BASE_DIR", str(tmp_path / "system_settings"), raising=False)
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-pi-setup", data={"weather_forecast_metric_tile_style": "Unsupported"},
+                                     headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
+    assert response.status_code == 400
+    assert _RouteFakeSaiSettings.STORED_SETTINGS == initial

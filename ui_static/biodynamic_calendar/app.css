@@ -34,28 +34,28 @@ body.biodynamic-theme-spring {
 }
 
 body.biodynamic-theme-summer {
-  --theme-panel: #fff0bd;
-  --theme-panel-strong: #fffaf0;
-  --theme-panel-soft: #f1d579;
+  --theme-panel: #fff0a3;
+  --theme-panel-strong: #fff9d9;
+  --theme-panel-soft: #f3d25d;
   --theme-border: #80510b;
   --theme-ink: #241b0c;
   --theme-muted: #594620;
   --theme-accent: #a85e00;
-  --theme-button: #f0d16a;
+  --theme-button: #f2cf54;
   --theme-lunar: #0b2943;
   --theme-lunar-edge: #f1c24b;
   background-image: url("/ui_static/biodynamic_calendar/backgrounds/valley-summer.webp");
 }
 
 body.biodynamic-theme-autumn {
-  --theme-panel: #f3dcc2;
-  --theme-panel-strong: #fff6e9;
-  --theme-panel-soft: #e5b78c;
+  --theme-panel: #f6cfaa;
+  --theme-panel-strong: #fff0df;
+  --theme-panel-soft: #eda16c;
   --theme-border: #79351f;
   --theme-ink: #2b1711;
   --theme-muted: #654235;
   --theme-accent: #a73e22;
-  --theme-button: #e7ad73;
+  --theme-button: #ec9c5f;
   --theme-lunar: #32170f;
   --theme-lunar-edge: #ef914d;
   background-image: url("/ui_static/biodynamic_calendar/backgrounds/valley-autumn.webp");
@@ -276,6 +276,7 @@ body.calendar-theme-preview-mode .dashboard-return {
 }
 
 .calendar-theme-toolbar {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -294,6 +295,7 @@ body.calendar-theme-preview-mode .dashboard-return {
   gap: 4px;
 }
 
+.calendar-theme-toolbar [role="status"] { color: #fff; flex-basis: 100%; font-size: .85rem; }
 body[class*="biodynamic-theme-"] .calendar-theme-toolbar button,
 .calendar-theme-toolbar button {
   min-height: 38px;

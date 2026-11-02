@@ -62,9 +62,9 @@ a { color: inherit; }
   --ink: #f5fbff;
   --muted: rgba(229, 242, 250, 0.78);
   --line: rgba(196, 220, 248, 0.48);
-  --glass: rgba(18, 43, 61, 0.76);
-  --glass-strong: rgba(13, 34, 50, 0.88);
-  --glass-soft: rgba(34, 65, 84, 0.64);
+  --glass: rgba(61, 84, 108, 0.9);
+  --glass-strong: rgba(48, 70, 94, 0.96);
+  --glass-soft: rgba(79, 104, 126, 0.82);
   --accent: #f7e76b;
   --accent-2: #9ad8ff;
   --scene-image: url("/ui_static/pollinator-pattern.svg");
@@ -77,6 +77,9 @@ a { color: inherit; }
 }
 
 .theme-garden {
+  --glass: rgba(36, 92, 92, 0.88);
+  --glass-strong: rgba(25, 75, 77, 0.95);
+  --glass-soft: rgba(55, 111, 108, 0.8);
   --scene-image: url("/ui_static/weather_forecast/backgrounds/garden.webp");
   --scene-fallback: #244f48;
   --scene-position: center center;
@@ -309,6 +312,7 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   cursor: zoom-out;
 }
 .caelus-theme-toolbar {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -322,6 +326,7 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   cursor: default;
 }
 .caelus-theme-options { display: flex; gap: 4px; }
+.caelus-theme-toolbar [role="status"] { color: #fff; flex-basis: 100%; font-size: .85rem; }
 .caelus-theme-toolbar button {
   min-height: 38px;
   padding: 8px 12px;

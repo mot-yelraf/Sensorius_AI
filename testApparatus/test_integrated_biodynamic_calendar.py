@@ -191,8 +191,8 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "body {\n  min-height: 100vh;\n  margin: 0;\n  font-family:" in stylesheet
     for theme, color, asset in (
         ("spring", "#e7f3df", "valley-spring.webp"),
-        ("summer", "#fff0bd", "valley-summer.webp"),
-        ("autumn", "#f3dcc2", "valley-autumn.webp"),
+        ("summer", "#fff0a3", "valley-summer.webp"),
+        ("autumn", "#f6cfaa", "valley-autumn.webp"),
         ("winter", "#dcebf3", "valley-winter.webp"),
     ):
         assert f"body.biodynamic-theme-{theme} {{" in stylesheet

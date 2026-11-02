@@ -29,6 +29,7 @@ PROVIDER = ""
 [WeatherForecast]
 PROVIDER = "met_no"
 THEME = "pollinator"
+METRIC_TILE_STYLE = "Theme"
 CURRENT_SENSOR_ID = ""
 
 [WeeWX]
