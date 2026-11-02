@@ -94,7 +94,7 @@ class WeatherAdapter(Protocol):
     def status(self) -> dict[str, Any]: ...
 
 
-async def persist_observation(logger, sensor_id: str, observation: Observation, *, unavailable_metrics=()) -> bool:
+async def persist_observation(logger, sensor_id: str, observation: Observation, *, unavailable_metrics=(), rain_checkpoint=None) -> bool:
     """Write a normalized observation through the shared persistence/listener path."""
     import asyncio
 
@@ -102,6 +102,7 @@ async def persist_observation(logger, sensor_id: str, observation: Observation, 
         return False
     values = dict.fromkeys(unavailable_metrics)
     values.update(observation.measurements)
+    options = {"rain_checkpoint": rain_checkpoint} if rain_checkpoint is not None else {}
     return await asyncio.to_thread(
-        logger.log_readings, observation.observed_at.isoformat(), sensor_id, values
+        logger.log_readings, observation.observed_at.isoformat(), sensor_id, values, **options
     )

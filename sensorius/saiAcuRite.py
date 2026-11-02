@@ -34,6 +34,7 @@ class AcuRiteUsbIngest:
         self.adapter = AcuRiteUsbReader(self._configuration(), transport)
         self._health = StationReportingHealth(data_logger)
         self._baseline = None
+        self._baseline_loaded_for = None
         self._last_write = float("-inf")
         self._last_attempt = float("-inf")
         self._sensor_id = ""
@@ -83,6 +84,7 @@ class AcuRiteUsbIngest:
         ])
         self.settings.save_settings()
         self._baseline = None
+        self._baseline_loaded_for = None
         self._last_write = float("-inf")
         self._last_attempt = float("-inf")
 
@@ -90,6 +92,7 @@ class AcuRiteUsbIngest:
         """Stop acquisition while retaining station settings and historical readings."""
         self.settings.replace_setting("AcuRite", "ENABLED", False)
         self._baseline = None
+        self._baseline_loaded_for = None
 
     async def save_configuration(self, payload) -> None:
         """Serialize device setup with acquisition and keep disk writes off the loop."""
@@ -111,6 +114,7 @@ class AcuRiteUsbIngest:
             self.adapter = AcuRiteUsbReader(config, self.adapter.transport)
             self._health = StationReportingHealth(self.data_logger)
             self._baseline = None
+            self._baseline_loaded_for = None
             self._last_write = float("-inf")
         self.adapter.settings = config
         await asyncio.to_thread(self.adapter.sample_once)
@@ -182,11 +186,8 @@ class AcuRiteUsbIngest:
             identity = self.adapter.device_identity
             health_id = "acurite-" + hashlib.sha256(identity.encode()).hexdigest()[:16] if identity else self._sensor_id
             await self._health.update(health_id, self.adapter.status())
-            if not self.adapter.status()["station"]["reporting"]:
-                self._baseline = None
             if observation is None:
                 return False
-            interval = self.poll_interval_sec
             identity = self.adapter.device_identity
             sensor_id = "acurite-" + hashlib.sha256(identity.encode()).hexdigest()[:16]
             profile = console_profile(self.adapter.settings.acurite_model)
@@ -199,25 +200,32 @@ class AcuRiteUsbIngest:
                 )
                 self._sensor_id = sensor_id
                 self._settings_identity = settings_identity
+            if self._baseline_loaded_for != sensor_id:
+                self._baseline = await asyncio.to_thread(self.data_logger.get_rain_counter_checkpoint, sensor_id)
+                self._baseline_loaded_for = sensor_id
             baseline = self._baseline
             counter = observation.rain_counter
             stamp = observation.rain_counter_at
-            candidate = None
+            candidate = baseline
             if counter is not None:
                 candidate = (observation.source_id, counter, stamp)
                 if baseline and baseline[0] == observation.source_id and stamp > baseline[2]:
                     elapsed = (stamp - baseline[2]).total_seconds()
-                    if elapsed <= max(120, interval * 2):
+                    if elapsed <= 86400:
                         delta = counter - baseline[1]
                         if delta < 0 and baseline[1] > 80 and counter < 2:
                             delta += observation.rain.modulus
                         if delta >= 0:
                             observation.measurements["Rain"] = round(delta, 3)
+                    else:
+                        printDM("AcuRite rain counter gap exceeds 24 hours; renewing the baseline without assigning unknown rainfall to the current day.", location=__name__, level="warning")
                 elif baseline and stamp <= baseline[2]:
                     candidate = baseline
             await asyncio.to_thread(self._calibrate_observation, sensor_id, observation)
             metrics = tuple(metric for channel in self.capabilities() for metric in channel.metrics)
-            if not await persist_observation(self.data_logger, sensor_id, observation, unavailable_metrics=metrics):
+            checkpoint = candidate if candidate != baseline else None
+            if not await persist_observation(self.data_logger, sensor_id, observation,
+                                             unavailable_metrics=metrics, rain_checkpoint=checkpoint):
                 raise RuntimeError("AcuRite readings could not be saved to the database.")
             self._baseline = candidate
             self._last_write = time.monotonic()

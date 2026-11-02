@@ -86,6 +86,48 @@ def test_outdoor_reports_preserve_zero_and_decode_sensor_identity():
     assert report.rain_counter == 1
 
 
+@pytest.mark.parametrize("key", ["temperature", "wind_east"])
+@pytest.mark.parametrize("channel,bits", [("A", 0xC0), ("B", 0x80), ("C", 0x00)])
+@pytest.mark.parametrize("sequence", range(4))
+def test_outdoor_channel_and_identity_ignore_sequence_bits(key, channel, bits, sequence):
+    expected = decode_outdoor(packet(key))
+    raw = bytearray(packet(key))
+    raw[1] = bits | sequence << 4 | (raw[1] & 0x0F)
+    report = decode_outdoor(bytes(raw))
+    assert report.sensor_id == f"{channel}-123"
+    assert report.measurements == expected.measurements
+    assert report.rain_counter == expected.rain_counter
+    assert report.signal == expected.signal
+    assert report.battery == expected.battery
+
+
+@pytest.mark.parametrize("sequence", range(4))
+def test_reserved_outdoor_channel_is_rejected_for_every_sequence(sequence):
+    raw = bytearray(packet("temperature"))
+    raw[1] = 0x40 | sequence << 4 | (raw[1] & 0x0F)
+    with pytest.raises(AcuRiteError, match="framing"):
+        decode_outdoor(bytes(raw))
+
+
+def test_sequence_changes_do_not_invalidate_outdoor_data_or_change_identity(acquisition):
+    adapter, transport, clock = acquisition
+    for index, sequence in enumerate((0, 1, 2, 3, 0)):
+        raw = bytearray(packet("temperature" if index % 2 == 0 else "wind_east"))
+        raw[1] = (raw[1] & 0xCF) | sequence << 4
+        transport.reports[1] = bytes(raw)
+        adapter.sample_once()
+        observation = adapter.read()
+        assert observation.source_id.endswith(":A-123")
+        assert observation.measurements["Temperature_F"] == 68
+        if index:
+            assert observation.measurements["Wind Direction"] == 90
+        assert adapter.status()["station"]["reporting"]
+        assert adapter.status()["invalid_outdoor_reports"] == 0
+        assert adapter.status()["last_error"] == ""
+        clock.advance(60)
+    assert len(transport.requests) == 5
+
+
 @pytest.mark.parametrize("key", ["console_linear", "console_hp03"])
 def test_console_calibration_maps_absolute_pressure_only(key):
     values = decode_console(packet(key))
@@ -143,6 +185,23 @@ def test_alternating_packets_merge_only_fresh_fields(acquisition):
     clock.advance(121)
     assert adapter.read() is None
     assert adapter.status()["observation_fresh"] is False
+
+
+def test_wind_reports_do_not_refresh_missing_temperature_and_humidity(acquisition):
+    adapter, transport, clock = acquisition
+    adapter.settings.acurite_poll_interval_sec = 60
+    adapter.sample_once()
+    adapter.read()
+    transport.reports[1] = packet("wind_east")
+    for _ in range(3):
+        clock.advance(60)
+        adapter.sample_once()
+        observation = adapter.read()
+    assert adapter.status()["station"]["reporting"]
+    assert observation.measurements["Wind Direction"] == 90
+    assert "Console Temperature_F" in observation.measurements
+    assert "Temperature_F" not in observation.measurements
+    assert "Rel-Humidity" not in observation.measurements
 
 
 def test_one_invalid_outdoor_report_is_tolerated_but_two_invalidate(acquisition):

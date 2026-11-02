@@ -328,8 +328,9 @@ def rain_gauges(unit_system: str = "Metric", value: float = .25) -> HTMLResponse
 
     sensor_id = "rain-pr-check"
     metrics = {metric: value for metric in RAIN_PERIODS}
+    stats = {sensor_id: {metric: {"min": value, "avg": value, "max": value} for metric in metrics}}
     html = "".join(render_dashboard(
-        "All", None, [sensor_id], {sensor_id: metrics}, {},
+        "All", None, [sensor_id], {sensor_id: metrics}, stats,
         SimpleNamespace(expected_gauge_map={}),
         gauge_config=apply_display_units_to_gauge_config(get_gauge_config(), unit_system),
         expected_gauge_map={sensor_id: list(metrics)},

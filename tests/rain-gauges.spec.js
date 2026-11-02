@@ -3,6 +3,17 @@ import { readFileSync } from 'node:fs';
 
 const maxima = { day: 50.8, week: 127, month: 254, year: 1016 };
 
+test('hundredth-inch rain increments remain visible in readings and statistics', async ({ page }) => {
+  await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({ contentType: 'application/javascript', body: '' }));
+  await page.route('**/api/rain-climate', route => route.fulfill({ json: { status: 'ready', maxima_mm: maxima } }));
+  await page.goto('/rain-gauges?unit_system=Imperial&value=0.01', { waitUntil: 'domcontentloaded' });
+  const card = page.locator('.metric-container[data-metric="Rain"]');
+  await expect(card.locator('.metric-current-value')).toContainText('0.01 in');
+  for (const stat of await card.locator('.metric-stats > div').all()) {
+    await expect(stat).toContainText('0.01');
+  }
+});
+
 test('a stationary zero rain gauge has no corner pointer after a range update', async ({ page }, testInfo) => {
   await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({
     contentType: 'application/javascript',

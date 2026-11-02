@@ -22,6 +22,7 @@ Operational characteristics:
 import sqlite3
 import asyncio
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -800,7 +801,7 @@ class saiDataLogger:
             RAIN_INTERVAL_METRIC,
             end_epoch=float(end_epoch),
             window_sec=RAIN_24H_WINDOW_SEC,
-            dedupe_epoch_minute=True,
+            dedupe_epoch_minute=not str(sensor_id).lower().startswith("acurite-"),
         )
         if total is None:
             return {}
@@ -814,7 +815,7 @@ class saiDataLogger:
             total = self.get_metric_sum_for_window(
                 sensor_id,
                 RAIN_INTERVAL_METRIC,
-                dedupe_epoch_minute=True,
+                dedupe_epoch_minute=not str(sensor_id).lower().startswith("acurite-"),
             )
             if total is not None:
                 out[WEEWX_RAIN_24H_METRIC] = total
@@ -891,6 +892,16 @@ class saiDataLogger:
                         cur.execute("""
                             CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_ts
                             ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, timestamp)
+                        """)
+
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS weather_rain_counters (
+                                sensor_id TEXT PRIMARY KEY COLLATE NOCASE,
+                                source_id TEXT NOT NULL,
+                                counter REAL NOT NULL,
+                                sampled_at TEXT NOT NULL,
+                                sample_epoch REAL NOT NULL
+                            )
                         """)
 
                         # ---- sensor liveness/events -------------------------------
@@ -1458,11 +1469,36 @@ class saiDataLogger:
                 0 if succeeded else getattr(self, "_consecutive_write_failures", 0) + 1
             )
 
-    def log_readings(self, timestamp, sensor_id, values: dict) -> bool:
-        """Persist readings, returning whether the write succeeded after recovery."""
+    def get_rain_counter_checkpoint(self, sensor_id: str) -> tuple | None:
+        """Load the rain counter committed atomically with a station's readings."""
+        conn = self._open_conn()
+        try:
+            row = conn.execute(
+                "SELECT source_id, counter, sampled_at FROM weather_rain_counters WHERE sensor_id = ?",
+                (sensor_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return (row[0], float(row[1]), datetime.fromisoformat(row[2])) if row else None
+
+    def log_readings(self, timestamp, sensor_id, values: dict, *, rain_checkpoint=None) -> bool:
+        """Persist readings and an optional source/counter/time checkpoint atomically."""
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
+        checkpoint_row = None
+        if rain_checkpoint is not None:
+            try:
+                source, counter, sampled_at = rain_checkpoint
+                if (not isinstance(source, str) or not source.strip()
+                        or isinstance(counter, bool) or not isinstance(counter, (int, float))
+                        or not math.isfinite(counter) or counter < 0
+                        or not isinstance(sampled_at, datetime) or sampled_at.utcoffset() is None):
+                    raise ValueError("Invalid rain checkpoint")
+                checkpoint_row = (sensor_id, source, counter, sampled_at.isoformat(), sampled_at.timestamp())
+            except (TypeError, ValueError, OverflowError):
+                printDM(f"Invalid rain checkpoint for {sensor_id}", location=MODULE)
+                return False
         if str(sensor_id).lower().startswith("ecowitt-"):
             raw_values = dict(values or {})
             # Missing gateway totals must clear old snapshots, including totals
@@ -1505,6 +1541,16 @@ class saiDataLogger:
                                     (timestamp, ts_epoch, sensor_id, metric, value)
                                     for metric, value in derived_values.items()
                                 ],
+                            )
+                        if checkpoint_row is not None:
+                            self._writer_conn.execute(
+                                "INSERT INTO weather_rain_counters "
+                                "(sensor_id, source_id, counter, sampled_at, sample_epoch) VALUES (?, ?, ?, ?, ?) "
+                                "ON CONFLICT(sensor_id) DO UPDATE SET source_id=excluded.source_id, "
+                                "counter=excluded.counter, sampled_at=excluded.sampled_at, "
+                                "sample_epoch=excluded.sample_epoch "
+                                "WHERE excluded.sample_epoch > weather_rain_counters.sample_epoch",
+                                checkpoint_row,
                             )
                         self._writer_conn.commit()
                     self._record_database_write_result(True)
