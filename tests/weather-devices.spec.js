@@ -21,7 +21,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('link', { name: 'Open General Settings' }).click();
     const modal = page.locator('#setupPiModal');
     await modal.getByRole('button', { name: 'Add Device', exact: true }).click();
-    if (width < 700) await modal.locator('#add-weather-section > summary').click();
+    await modal.locator('#add-weather-section > summary').click();
     await modal.locator('#add-acurite-section summary').click();
     await expect(modal.locator('#add-acurite-section')).toContainText('USB data requests follow this interval.');
     await expect(modal.locator('#acurite-mode-help')).toContainText('automatically');
@@ -29,11 +29,15 @@ for (const width of [1440, 390]) {
     await expect(modal.locator('#acurite-mode-help')).toContainText('MODE 4');
     await modal.locator('#acurite-usb-serial').fill('console-123');
     await modal.locator('#acurite-poll-interval').fill('300');
+    await expect(modal.locator('#acurite-enabled')).not.toBeChecked();
+    await modal.locator('#acurite-enabled').check();
     await modal.locator('#btn-acurite-save').click();
     await expect(modal.locator('#acurite-status')).toContainText('Console saved');
-    expect(saved).toEqual({ model: '02032', usb_serial: 'console-123', poll_interval_sec: '300' });
-    await modal.locator('#btn-acurite-disable').click();
+    expect(saved).toEqual({ enabled: true, model: '02032', usb_serial: 'console-123', poll_interval_sec: '300' });
+    await modal.locator('#acurite-enabled').uncheck();
+    await modal.locator('#btn-acurite-save').click();
     await expect(modal.locator('#acurite-status')).toContainText('historical readings retained');
+    expect(saved.enabled).toBe(false);
     rejected = true;
     await modal.locator('#btn-acurite-save').click();
     await expect(modal.locator('#acurite-status')).toContainText('60–3600');
@@ -73,8 +77,6 @@ for (const width of [1440, 390]) {
       await expect(modal.locator('#add-davis-section > summary')).toBeHidden();
       await weather.locator(':scope > summary').click();
       await modal.getByRole('button', { name: '< Back', exact: true }).click();
-    } else {
-      await weather.locator(':scope > summary').click();
     }
     await expect(modal.locator('#add-davis-section > summary')).toBeHidden();
     await weather.locator(':scope > summary').click();
@@ -90,13 +92,17 @@ for (const width of [1440, 390]) {
         await modal.locator('#oregon-usb-serial').fill('oregon-123');
       }
       await modal.locator(`#${kind}-poll-interval`).fill('300');
+      await expect(modal.locator(`#${kind}-enabled`)).not.toBeChecked();
+      await modal.locator(`#${kind}-enabled`).check();
       await modal.locator(`#btn-${kind}-save`).click();
       await expect(modal.locator(`#${kind}-status`)).toContainText('Console saved');
       expect(saved[kind]).toEqual(kind === 'davis'
-        ? { port: '/dev/cu.usbserial-123', baud_rate: '9600', poll_interval_sec: '300' }
-        : { model: 'WMR88A', usb_serial: 'oregon-123', poll_interval_sec: '300' });
-      await modal.locator(`#btn-${kind}-disable`).click();
+        ? { enabled: true, port: '/dev/cu.usbserial-123', baud_rate: '9600', poll_interval_sec: '300' }
+        : { enabled: true, model: 'WMR88A', usb_serial: 'oregon-123', poll_interval_sec: '300' });
+      await modal.locator(`#${kind}-enabled`).uncheck();
+      await modal.locator(`#btn-${kind}-save`).click();
       await expect(modal.locator(`#${kind}-status`)).toContainText('historical readings retained');
+      expect(saved[kind].enabled).toBe(false);
       rejected = true;
       await modal.locator(`#btn-${kind}-save`).click();
       await expect(modal.locator(`#${kind}-status`)).toContainText('Invalid console configuration');
@@ -110,5 +116,32 @@ for (const width of [1440, 390]) {
       }
       await expect(modal.locator(`#${kind}-poll-interval`)).toBeHidden();
     }
+  });
+}
+
+for (const enabled of [false, true]) {
+  test(`Weather Station checkboxes restore saved enabled=${enabled}`, async ({ page }) => {
+    await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({ body: '' }));
+    for (const kind of ['ecowitt', 'acurite', 'davis', 'oregon']) {
+      await page.route(`**/${kind}/status`, route => route.fulfill({ json: { enabled, inventory: [] } }));
+    }
+    let disabled = false;
+    await page.route('**/ecowitt/disable', route => {
+      disabled = true;
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.goto('/');
+    await page.getByRole('link', { name: 'Open General Settings' }).click();
+    const modal = page.locator('#setupPiModal');
+    await modal.getByRole('button', { name: 'Add Device', exact: true }).click();
+    for (const kind of ['ecowitt', 'acurite', 'davis', 'oregon']) {
+      await expect(modal.locator(`#${kind}-enabled`)).toBeChecked({ checked: enabled });
+    }
+    await modal.locator('#add-weather-section > summary').click();
+    await modal.locator('#add-ecowitt-section > summary').click();
+    await modal.locator('#ecowitt-enabled').uncheck();
+    await modal.locator('#btn-ecowitt-save').click();
+    await expect.poll(() => disabled).toBe(true);
+    await expect(modal.locator('#ecowitt-status')).toContainText('polling disabled');
   });
 }

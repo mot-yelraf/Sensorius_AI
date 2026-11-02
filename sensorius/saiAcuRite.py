@@ -60,13 +60,16 @@ class AcuRiteUsbIngest:
             "AcuRite", "POLL_INTERVAL_SEC", 60, reload_if_changed=True))))
 
     def configure(self, payload):
-        """Validate all input before saving and enable acquisition last."""
+        """Validate all input before saving configuration and acquisition state."""
         if not isinstance(payload, dict):
             raise ValueError("Expected an AcuRite configuration object.")
         profile = console_profile(payload.get("model", "01536"))
         serial = payload.get("usb_serial", "")
         if not isinstance(serial, str) or len(serial) > 128 or any(ord(c) < 32 for c in serial):
             raise ValueError("Invalid USB serial number.")
+        enabled = payload.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError("Enabled must be a boolean.")
         interval = payload.get("poll_interval_sec", 60)
         if isinstance(interval, bool):
             raise ValueError("Data retrieval interval must be 60–3600 seconds.")
@@ -80,7 +83,7 @@ class AcuRiteUsbIngest:
             ("AcuRite", "MODEL", profile.key),
             ("AcuRite", "USB_SERIAL", serial.strip()),
             ("AcuRite", "POLL_INTERVAL_SEC", interval),
-            ("AcuRite", "ENABLED", True),
+            ("AcuRite", "ENABLED", enabled),
         ])
         self.settings.save_settings()
         self._baseline = None

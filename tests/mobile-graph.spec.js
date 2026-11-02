@@ -36,6 +36,8 @@ async function assertMobileGraph(page) {
   }
   await expect(page.locator('#start_time')).toBeVisible();
   const metric = page.locator('.fullscreen-metric-checkbox').last();
+  const group = metric.locator('xpath=ancestor::details');
+  if (!await group.evaluate(element => element.open)) await group.locator(':scope > summary').click();
   await metric.check();
   await expect(metric).toBeChecked();
   await metric.uncheck();
@@ -49,6 +51,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }
       const dashboardWidth = await page.evaluate(() => innerWidth);
       await page.getByRole('link', { name: 'Full Screen Graphs' }).tap();
       await expect(page.locator('.fullscreen-metric-checkbox')).toHaveCount(4);
+      await expect(page.locator('.graph-option-group[open]')).toHaveCount(0);
       await assertMobileGraph(page);
       await page.locator('.fullscreen-time-grid label').filter({ hasText: /^24Hr$/ }).tap();
       await page.locator('.fullscreen-graph-body').evaluate(element => { element.scrollTop = 0; });
@@ -68,6 +71,7 @@ test('desktop Graphum retains its left selectors and right chart', async ({ page
   await graphFixture(page);
   await page.getByRole('link', { name: 'Full Screen Graphs' }).click();
   await expect(page.locator('.fullscreen-metric-checkbox')).toHaveCount(4);
+  await expect(page.locator('.graph-option-group[open]')).toHaveCount(0);
   const controls = await page.locator('.fullscreen-graph-controls').boundingBox();
   const graph = await page.locator('.fullscreen-graph-main').boundingBox();
   expect(controls.x + controls.width).toBeLessThanOrEqual(graph.x);

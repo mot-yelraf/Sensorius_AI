@@ -843,7 +843,8 @@ def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails
     assert 'id="biodynamic_calendar_theme"' in display_section
     assert '<summary>Biodynamic Calendar Theme</summary>' in display_section
     assert '<legend class="theme-selector-legend">Biodynamic Calendar Theme</legend>' in display_section
-    assert display_section.count('<details class="theme-section">') == 3
+    for section in ('dashboard', 'caelus', 'calendar'):
+        assert f'<details class="theme-section" data-runtime-section="display-{section}-theme">' in display_section
     assert display_section.count('<div class="theme-section-content">') == 4
     assert '#setupPiModal .theme-section > summary {' in text
     assert '#setupPiModal .theme-section > summary::before {' in text

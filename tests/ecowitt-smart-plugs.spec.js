@@ -10,9 +10,14 @@ const discovery = {
 
 test('GW1200 discovery separates sensors and plugs and saves query interval', async ({ page }, testInfo) => {
   await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({ body: '' }));
-  await page.route('**/ecowitt/status', route => route.fulfill({ json: { ...discovery, label: 'Online' } }));
+  await page.route('**/ecowitt/status', route => route.fulfill({ json: { ...discovery, enabled: true, label: 'Online' } }));
   await page.route('**/ecowitt/discover', route => route.fulfill({ json: discovery }));
   let saved;
+  let disabled = false;
+  await page.route("**/ecowitt/disable", route => {
+    disabled = true;
+    return route.fulfill({ json: { ok: true } });
+  });
   await page.route('**/ecowitt/save', route => {
     saved = route.request().postDataJSON();
     return route.fulfill({ json: { ...discovery, smart_plug_interval_sec: 15 } });
@@ -21,7 +26,9 @@ test('GW1200 discovery separates sensors and plugs and saves query interval', as
   await page.getByRole('link', { name: 'Open General Settings' }).click();
   const modal = page.locator('#setupPiModal');
   await modal.getByRole('button', { name: 'Add Device', exact: true }).click();
+  await modal.locator('#add-weather-section > summary').click();
   await modal.locator('summary').filter({ hasText: /^Ecowitt Gateway$/ }).click();
+  await expect(modal.locator('#ecowitt-enabled')).toBeChecked();
   await modal.getByRole('button', { name: 'Find Devices', exact: true }).click();
   await expect(modal.getByText('Discovered GW Sensors', { exact: true })).toBeVisible();
   await expect(modal.getByText('Discovered GW Smart Plugs', { exact: true })).toBeVisible();
@@ -30,6 +37,11 @@ test('GW1200 discovery separates sensors and plugs and saves query interval', as
   await modal.locator('#ecowitt-smart-plug-interval').fill('15');
   await modal.getByRole('button', { name: 'Save Gateway', exact: true }).click();
   await expect.poll(() => saved?.smart_plug_interval_sec).toBe('15');
+  expect(saved.enabled).toBe(true);
+  await modal.locator('#ecowitt-enabled').uncheck();
+  await modal.getByRole('button', { name: 'Save Gateway', exact: true }).click();
+  await expect.poll(() => disabled).toBe(true);
+  await expect(modal.locator('#ecowitt-status')).toContainText('polling disabled');
   await page.screenshot({ path: testInfo.outputPath('ecowitt-discovery.png'), fullPage: true });
 });
 

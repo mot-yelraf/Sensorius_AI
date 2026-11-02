@@ -169,6 +169,11 @@ visible fields, and blocks runtime writes. Do not capture these guide images
 from a live hub. Use `-- --output-dir /absolute/staging/directory` to review them
 before replacement, then run `npm run docs:pdf` to refresh the embedded images.
 
+Keep documentation and image captions focused on the workflow. Omit capture-host
+names, personal filesystem paths, private addresses, and machine provenance.
+Use generic placeholders for installation paths and host examples. PDF links
+must point to public repository files rather than local filesystem paths.
+
 ## Pull Request Guidelines
 
 Pull requests should:

@@ -137,20 +137,17 @@ For comparisons, match the native report's viewport and pixel scale using
 `--viewport-width`, `--viewport-height`, and `--device-scale-factor` in Chromium.
 Native engines without long-task or CDP counters report those values as unavailable.
 These are scripted main-thread scrolling measurements, not wheel/momentum input
-or compositor FPS tests. Profiling a Pi-hosted page from Samhain measures
-Samhain's renderer and the Pi's serving latency; it does not measure the Pi's
-local display/GPU or its native Qt/GTK webview backend.
+or compositor FPS tests. Profiling a remotely hosted page measures the browser
+computer's renderer and the server's serving latency; it does not measure the
+server's local display/GPU or its native Qt/GTK webview backend.
 
 ### Record actual native scrolling on the Pi
 
 For the real wheel and scrollbar path, enable the opt-in recorder in the normal
 GTK app window. It observes actual input and does not scroll the page or create
 a second window. Keep pywebview at the existing 5.4 pin for the baseline test.
-The current test set is `sensoria-hub-0` (Pi 5), `sensorius-hub-1` (Pi 5), and
-`sensorius-hub-2` (Pi 4); headless `sensorius-hub-3` is excluded.
-
-On each test Pi, add or update only these keys in
-`/home/twfarley/Sensorius/.env`, preserving the rest of that file:
+On a Raspberry Pi with a local GTK display, add or update these keys in
+`/home/<user>/Sensorius/.env`, preserving the rest of that file:
 
 ```dotenv
 SENSORIUS_GUI_SCROLL_PROFILE=1

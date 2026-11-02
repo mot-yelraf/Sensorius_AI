@@ -666,6 +666,11 @@
   align-items: center;
   flex-wrap: wrap;
 }
+#setupPiModal .weather-console-actions {
+  justify-content: flex-end;
+  align-self: end;
+  min-height: 2.72rem;
+}
 #setupPiModal .locations-scroll,
 #setupPiModal .remove-scroll {
   max-height: 360px;
@@ -1114,7 +1119,7 @@
                   </select>
                 </div>
               </div>
-              <details class="theme-section dashboard-order-section">
+              <details class="theme-section dashboard-order-section" data-runtime-section="display-dashboard-order">
                 <summary>Sensorius Dashboard Order</summary>
                 <div class="theme-section-content">
                   <div class="field-grid">
@@ -1138,7 +1143,7 @@
                 </div>
               </details>
               {% set selected_dashboard_background_theme = dashboard_background_theme | default('leaf') %}
-              <details class="theme-section">
+              <details class="theme-section" data-runtime-section="display-dashboard-theme">
                 <summary>Sensorius Dashboard Theme</summary>
                 <div class="theme-section-content">
                   <fieldset class="thumbnail-selector" id="dashboard_background_theme" style="--thumbnail-count:5">
@@ -1163,7 +1168,7 @@
                 </div>
               </details>
               {% set selected_weather_forecast_theme = weather_forecast_theme | default('pollinator') %}
-              <details class="theme-section">
+              <details class="theme-section" data-runtime-section="display-caelus-theme">
                 <summary>Caelus Theme</summary>
                 <div class="theme-section-content">
                   <fieldset class="thumbnail-selector" id="weather_forecast_theme" style="--thumbnail-count:5">
@@ -1188,7 +1193,7 @@
                 </div>
               </details>
               {% set selected_biodynamic_calendar_theme = biodynamic_calendar_theme | default('garden_tools') %}
-              <details class="theme-section">
+              <details class="theme-section" data-runtime-section="display-calendar-theme">
                 <summary>Biodynamic Calendar Theme</summary>
                 <div class="theme-section-content">
                   <fieldset class="thumbnail-selector" id="biodynamic_calendar_theme" style="--thumbnail-count:5">
@@ -1642,7 +1647,7 @@
           <div class="settings-pane" id="pane-add" hidden>
             <h3 class="pane-title">Add Device</h3>
             <div class="integrations-list">
-              <details class="integration-block" id="add-nodus-section" open>
+              <details class="integration-block" id="add-nodus-section" data-runtime-section="add-nodus">
                 <summary>Nodus Device</summary>
                 <div class="integration-block-content">
                   <div class="status-text">Onboard one Nodus setup network at a time. Follow the platform instructions below, then click <strong>Add</strong>.</div>
@@ -1693,10 +1698,10 @@
                   </div>
                 </div>
               </details>
-              <details class="integration-block" id="add-weather-section" open>
+              <details class="integration-block" id="add-weather-section" data-runtime-section="add-weather">
                 <summary>Weather Station</summary>
                 <div class="integration-block-content integrations-list">
-              <details class="integration-block" id="add-ecowitt-section">
+              <details class="integration-block" id="add-ecowitt-section" data-runtime-section="add-ecowitt">
                 <summary>Ecowitt Gateway</summary>
                 <div class="integration-block-content">
                   <div class="field-grid-stack">
@@ -1730,13 +1735,13 @@
                     </div>
                   </div>
                   <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
-                    <button type="button" class="button neutral" id="btn-ecowitt-disable">Disable</button>
-                    <button type="button" class="button green" id="btn-ecowitt-save" disabled>Save Gateway</button>
+                    <label for="ecowitt-enabled"><input type="checkbox" id="ecowitt-enabled"> Enable</label>
+                    <button type="button" class="button green" id="btn-ecowitt-save">Save Gateway</button>
                   </div>
                   <div class="detail" id="ecowitt-status" aria-live="polite" style="margin-top:.55rem;"></div>
                 </div>
               </details>
-              <details class="integration-block" id="add-acurite-section">
+              <details class="integration-block" id="add-acurite-section" data-runtime-section="add-acurite">
                 <summary>AcuRite USB Console</summary>
                 <div class="integration-block-content">
                   <div class="detail">Connect a PC Connect console by USB to this Sensorius host. Close other USB readers, including WeeWX or PC Connect.</div>
@@ -1761,17 +1766,17 @@
                     <div class="field-stack">
                       <label for="acurite-poll-interval">Data retrieval interval (seconds)</label>
                       <input id="acurite-poll-interval" type="number" min="60" max="3600" step="1" value="60">
-                      <div class="detail">USB data requests follow this interval. Alternating outdoor fields may need two retrievals to arrive.</div>
+                    </div>
+                    <div class="inline-actions weather-console-actions">
+                      <label for="acurite-enabled"><input type="checkbox" id="acurite-enabled"> Enable</label>
+                      <button type="button" class="button green" id="btn-acurite-save">Save Console</button>
                     </div>
                   </div>
-                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
-                    <button type="button" class="button neutral" id="btn-acurite-disable">Disable</button>
-                    <button type="button" class="button green" id="btn-acurite-save">Save Console</button>
-                  </div>
+                  <div class="detail">USB data requests follow this interval. Alternating outdoor fields may need two retrievals to arrive.</div>
                   <div id="acurite-status" class="detail" aria-live="polite"></div>
                 </div>
               </details>
-              <details class="integration-block" id="add-davis-section">
+              <details class="integration-block" id="add-davis-section" data-runtime-section="add-davis">
                 <summary>Davis Vue USB Console</summary>
                 <div class="integration-block-content">
                   <div class="detail">Requires a Vantage Vue console with a compatible USB serial datalogger and one Vue ISS transmitter. Match the console baud rate and leave setup screens. Close WeatherLink, WeeWX and other serial readers. Outdoor readings appear after reception progress is verified.</div>
@@ -1779,27 +1784,28 @@
                     <div class="field-stack"><label for="davis-port">USB datalogger serial port</label><input id="davis-port" type="text" maxlength="256" placeholder="/dev/cu.usbserial-123 or COM3" autocomplete="off"></div>
                     <div class="field-stack"><label for="davis-baud-rate">Console baud rate</label><select id="davis-baud-rate"><option value="1200">1200</option><option value="2400">2400</option><option value="4800">4800</option><option value="9600">9600</option><option value="14400">14400</option><option value="19200" selected>19200</option></select></div>
                     <div class="field-stack"><label for="davis-poll-interval">Data retrieval interval (seconds)</label><input id="davis-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
-                  </div>
-                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
-                    <button type="button" class="button neutral" id="btn-davis-disable">Disable</button>
-                    <button type="button" class="button green" id="btn-davis-save">Save Console</button>
+                    <div class="inline-actions weather-console-actions">
+                      <label for="davis-enabled"><input type="checkbox" id="davis-enabled"> Enable</label>
+                      <button type="button" class="button green" id="btn-davis-save">Save Console</button>
+                    </div>
                   </div>
                   <div id="davis-status" class="detail" aria-live="polite"></div>
                 </div>
               </details>
-              <details class="integration-block" id="add-oregon-section">
+              <details class="integration-block" id="add-oregon-section" data-runtime-section="add-oregon">
                 <summary>Oregon Scientific USB Console</summary>
                 <div class="integration-block-content">
                   <div class="detail">Connect a supported WMR100-family console to this Sensorius host. Close WeeWX and other USB readers. Uses native HID on macOS/Windows and libusb on Linux/Pi. Other Oregon protocols, including WMR200 and WMR300, are not supported.</div>
                   <div class="field-grid-stack">
                     <div class="field-stack"><label for="oregon-model">Console model</label><select id="oregon-model"><option>WMR100</option><option>WMR100N</option><option>WMR88</option><option>WMR88A</option><option>WMR180</option><option>WMR180A</option><option>WMRS200</option></select></div>
                     <div class="field-stack"><label for="oregon-usb-serial">USB serial number (optional)</label><input id="oregon-usb-serial" type="text" maxlength="128" autocomplete="off"><div class="detail">Leave blank for one console. Specify a serial number when several are attached.</div></div>
-                    <div class="field-stack"><label for="oregon-poll-interval">Snapshot interval (seconds)</label><input id="oregon-poll-interval" type="number" min="60" max="3600" step="1" value="60"><div class="detail">Incoming USB reports are received continuously. This interval controls saved weather snapshots.</div></div>
+                    <div class="field-stack"><label for="oregon-poll-interval">Snapshot interval (seconds)</label><input id="oregon-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
+                    <div class="inline-actions weather-console-actions">
+                      <label for="oregon-enabled"><input type="checkbox" id="oregon-enabled"> Enable</label>
+                      <button type="button" class="button green" id="btn-oregon-save">Save Console</button>
+                    </div>
                   </div>
-                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
-                    <button type="button" class="button neutral" id="btn-oregon-disable">Disable</button>
-                    <button type="button" class="button green" id="btn-oregon-save">Save Console</button>
-                  </div>
+                  <div class="detail">Incoming USB reports are received continuously. This interval controls saved weather snapshots.</div>
                   <div id="oregon-status" class="detail" aria-live="polite"></div>
                 </div>
               </details>
@@ -3377,26 +3383,28 @@
         const element = document.getElementById(`${kind}-${suffix}`);
         if (element) element.value = data[field] ?? fallback;
       }
+      document.getElementById(`${kind}-enabled`).checked = data.enabled === true;
       setStatus(`${kind}-status`, [data.label, data.state, data.last_error].filter(Boolean).join(" | "));
     } catch (e) {
       setStatus(`${kind}-status`, e.message || "Unable to load console status.");
     }
   }
 
-  async function saveUsbWeatherConsole(kind, disable) {
-    const button = `btn-${kind}-${disable ? "disable" : "save"}`;
-    setButtonBusy(button, true, disable ? "Disabling..." : "Saving...");
+  async function saveUsbWeatherConsole(kind) {
+    const button = `btn-${kind}-save`;
+    const enabled = document.getElementById(`${kind}-enabled`).checked;
+    setButtonBusy(button, true, "Saving...");
     try {
       const value = suffix => document.getElementById(`${kind}-${suffix}`)?.value;
-      const payload = { poll_interval_sec: value("poll-interval") };
+      const payload = { enabled, poll_interval_sec: value("poll-interval") };
       if (kind === "davis") Object.assign(payload, { port: value("port"), baud_rate: value("baud-rate") });
       else Object.assign(payload, { model: value("model"), usb_serial: value("usb-serial") });
-      const resp = await fetch(`/${kind}/${disable ? "disable" : "save"}`, {
+      const resp = await fetch(`/${kind}/save`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       const data = await resp.json();
       if (!resp.ok || !data.ok) throw new Error(data.error || "Unable to save console settings.");
-      setStatus(`${kind}-status`, disable ? "Acquisition disabled; historical readings retained." : "Console saved. Waiting for live weather reports.");
+      setStatus(`${kind}-status`, !enabled ? "Acquisition disabled; historical readings retained." : "Console saved. Waiting for live weather reports.");
     } catch (e) {
       setStatus(`${kind}-status`, e.message || "Unable to save console settings.");
     } finally {
@@ -3405,8 +3413,7 @@
   }
 
   for (const kind of ["davis", "oregon"]) {
-    document.getElementById(`btn-${kind}-save`)?.addEventListener("click", () => saveUsbWeatherConsole(kind, false));
-    document.getElementById(`btn-${kind}-disable`)?.addEventListener("click", () => saveUsbWeatherConsole(kind, true));
+    document.getElementById(`btn-${kind}-save`)?.addEventListener("click", () => saveUsbWeatherConsole(kind));
   }
 
   function updateAcuriteModeHelp() {
@@ -3425,6 +3432,7 @@
       document.getElementById("acurite-model").value = data.model || "01536";
       document.getElementById("acurite-usb-serial").value = data.usb_serial || "";
       document.getElementById("acurite-poll-interval").value = data.poll_interval_sec || 60;
+      document.getElementById("acurite-enabled").checked = data.enabled === true;
       updateAcuriteModeHelp();
       setStatus("acurite-status", [data.label, data.state, data.last_error].filter(Boolean).join(" | "));
     } catch (e) {
@@ -3432,13 +3440,15 @@
     }
   }
 
-  async function saveAcuriteConsole(disable) {
-    const button = disable ? "btn-acurite-disable" : "btn-acurite-save";
-    setButtonBusy(button, true, disable ? "Disabling..." : "Saving...");
+  async function saveAcuriteConsole() {
+    const button = "btn-acurite-save";
+    const enabled = document.getElementById("acurite-enabled").checked;
+    setButtonBusy(button, true, "Saving...");
     try {
-      const resp = await fetch(disable ? "/acurite/disable" : "/acurite/save", {
+      const resp = await fetch("/acurite/save", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          enabled,
           model: document.getElementById("acurite-model").value,
           usb_serial: document.getElementById("acurite-usb-serial").value.trim(),
           poll_interval_sec: document.getElementById("acurite-poll-interval").value
@@ -3446,10 +3456,10 @@
       });
       const data = await resp.json();
       if (!resp.ok || !data.ok) throw new Error(data.error || "Unable to save AcuRite settings.");
-      setStatus("acurite-status", disable
+      setStatus("acurite-status", !enabled
         ? "AcuRite acquisition disabled; historical readings retained."
         : "Console saved. Waiting for USB reports; initial weather fields can take up to two minutes.");
-      showSettingsToast(disable ? "AcuRite disabled" : "AcuRite console saved", "ok");
+      showSettingsToast(!enabled ? "AcuRite disabled" : "AcuRite console saved", "ok");
     } catch (e) {
       setStatus("acurite-status", e.message || "Unable to save AcuRite settings.");
     } finally {
@@ -3458,8 +3468,7 @@
   }
 
   document.getElementById("acurite-model")?.addEventListener("change", updateAcuriteModeHelp);
-  document.getElementById("btn-acurite-save")?.addEventListener("click", () => saveAcuriteConsole(false));
-  document.getElementById("btn-acurite-disable")?.addEventListener("click", () => saveAcuriteConsole(true));
+  document.getElementById("btn-acurite-save")?.addEventListener("click", () => saveAcuriteConsole());
 
   let ecowittDiscovery = null;
 
@@ -3526,6 +3535,7 @@
       renderEcowittSmartPlugs(data.smart_plugs);
       const plugInterval = document.getElementById("ecowitt-smart-plug-interval");
       if (plugInterval && data.smart_plug_interval_sec) plugInterval.value = data.smart_plug_interval_sec;
+      document.getElementById("ecowitt-enabled").checked = data.enabled === true;
       const parts = [data.label || "Ecowitt state unknown"];
       if (data.last_accepted_reading) parts.push("Latest reading: " + data.last_accepted_reading);
       if (data.last_error) parts.push(data.last_error);
@@ -3538,8 +3548,6 @@
   async function findEcowittSensors() {
     const gateway_url = (document.getElementById("ecowitt-gateway-url")?.value || "").trim();
     ecowittDiscovery = null;
-    const save = document.getElementById("btn-ecowitt-save");
-    if (save) save.disabled = true;
     setStatus("ecowitt-status", "Querying gateway...");
     setButtonBusy("btn-ecowitt-find", true, "Finding...");
     try {
@@ -3553,7 +3561,6 @@
       ecowittDiscovery = data;
       renderEcowittSensors(data.inventory);
       renderEcowittSmartPlugs(data.smart_plugs);
-      if (save) save.disabled = false;
       setStatus("ecowitt-status", `${data.gateway_model || "Ecowitt gateway"}: ${data.inventory.length} valid sensor(s), ${data.live_metric_count || 0} live metric(s).`);
     } catch (e) {
       renderEcowittSensors([]);
@@ -3567,7 +3574,8 @@
   }
 
   async function saveEcowittGateway() {
-    if (!ecowittDiscovery) {
+    const enabled = document.getElementById("ecowitt-enabled").checked;
+    if (enabled && !ecowittDiscovery) {
       setStatus("ecowitt-status", "Choose Find Devices before saving.");
       return;
     }
@@ -3575,13 +3583,18 @@
     const poll_interval_sec = parseInt(document.getElementById("ecowitt-polling-interval")?.value || "300", 10) || 300;
     setButtonBusy("btn-ecowitt-save", true, "Saving...");
     try {
-      const resp = await fetch("/ecowitt/save", {
+      const resp = await fetch(enabled ? "/ecowitt/save" : "/ecowitt/disable", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gateway_url, poll_interval_sec, smart_plug_interval_sec: document.getElementById("ecowitt-smart-plug-interval").value })
+        body: JSON.stringify({ enabled, gateway_url, poll_interval_sec, smart_plug_interval_sec: document.getElementById("ecowitt-smart-plug-interval").value })
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.error || "Failed to save Ecowitt gateway.");
+      if (!enabled) {
+        setStatus("ecowitt-status", "Ecowitt polling disabled; settings and historical readings retained.");
+        showSettingsToast("Ecowitt polling disabled", "ok");
+        return;
+      }
       shell.dataset.ecowittGatewayUrl = data.gateway_url || gateway_url;
       shell.dataset.ecowittPollInterval = String(data.poll_interval_sec || poll_interval_sec);
       ecowittDiscovery = data;
@@ -3595,23 +3608,6 @@
       showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-ecowitt-save", false);
-    }
-  }
-
-  async function disableEcowittGateway() {
-    setButtonBusy("btn-ecowitt-disable", true, "Disabling...");
-    try {
-      const resp = await fetch("/ecowitt/disable", { method: "POST" });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.error || "Failed to disable Ecowitt gateway.");
-      setStatus("ecowitt-status", "Ecowitt polling disabled; historical readings were retained.");
-      showSettingsToast("Ecowitt polling disabled", "ok");
-    } catch (e) {
-      const msg = e && e.message ? e.message : "Failed to disable Ecowitt gateway.";
-      setStatus("ecowitt-status", msg);
-      showSettingsToast(msg, "error");
-    } finally {
-      setButtonBusy("btn-ecowitt-disable", false);
     }
   }
 
@@ -5283,9 +5279,6 @@
     }
     if (ev.target && ev.target.id === "btn-ecowitt-save") {
       saveEcowittGateway();
-    }
-    if (ev.target && ev.target.id === "btn-ecowitt-disable") {
-      disableEcowittGateway();
     }
     if (ev.target && ev.target.id === "farm-token-toggle") {
       const input = document.getElementById("farm-access-token");

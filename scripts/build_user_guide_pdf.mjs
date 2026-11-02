@@ -60,6 +60,20 @@ const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage();
   await page.goto(pathToFileURL(temporaryHtml).href, { waitUntil: "networkidle" });
+  await page.evaluate(({ repositoryRoot, repositoryUrl }) => {
+    for (const anchor of document.querySelectorAll("a[href]")) {
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#")) continue;
+      const url = new URL(href, document.baseURI);
+      if (url.protocol !== "file:") continue;
+      const pathname = decodeURIComponent(url.pathname);
+      if (!pathname.startsWith(repositoryRoot + "/")) {
+        throw new Error("Documentation links must stay inside the repository.");
+      }
+      const relative = pathname.slice(repositoryRoot.length + 1);
+      anchor.href = repositoryUrl + relative.split("/").map(encodeURIComponent).join("/") + url.hash;
+    }
+  }, { repositoryRoot: root, repositoryUrl: "https://github.com/mot-yelraf/Sensorius_AI/blob/trunk/" });
   await page.emulateMedia({ media: "print" });
   await page.pdf({
     path: temporaryPdf,

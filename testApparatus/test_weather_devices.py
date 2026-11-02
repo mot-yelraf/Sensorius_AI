@@ -138,7 +138,7 @@ def test_acurite_routes_validate_and_enforce_protected_access(service):
     with TestClient(app) as client:
         assert client.post("/acurite/save", json={}).status_code == 401
         headers = {"x-test-key": "authorized"}
-        for payload in ({"model": "unknown"}, {"poll_interval_sec": 0}, {"poll_interval_sec": True}, [], {"usb_serial": "bad\nserial"}):
+        for payload in ({"model": "unknown"}, {"enabled": "false"}, {"poll_interval_sec": 0}, {"poll_interval_sec": True}, [], {"usb_serial": "bad\nserial"}):
             previous = dict(settings.values)
             assert client.post("/acurite/save", headers=headers, json=payload).status_code == 400
             assert settings.values == previous
@@ -146,6 +146,9 @@ def test_acurite_routes_validate_and_enforce_protected_access(service):
         assert settings.get_setting("AcuRite", "MODEL") == "02032"
         assert client.get("/acurite/status").json()["model"] == "02032"
         assert client.post("/acurite/disable", headers=headers).json()["enabled"] is False
+        result = client.post("/acurite/save", headers=headers, json={"model": "02033", "enabled": False})
+        assert result.status_code == 200 and result.json()["enabled"] is False
+        assert settings.get_setting("AcuRite", "ENABLED") is False
 
 
 GATEWAYS = json.loads((Path(__file__).parent / "fixtures/ecowitt-http-gateways.json").read_text())["gateways"]
@@ -325,7 +328,7 @@ def test_additional_console_routes_validate_protection_and_preserve_history(serv
     with TestClient(app) as client:
         assert client.post(f"/{kind}/save", json=payload).status_code == 401
         headers = {"x-test-auth": "yes"}
-        for invalid in ([], {**payload, "poll_interval_sec": 59}, {**payload, "poll_interval_sec": True},
+        for invalid in ([], {**payload, "enabled": "false"}, {**payload, "poll_interval_sec": 59}, {**payload, "poll_interval_sec": True},
                         {"port": "https://example.com", "model": "WMR200"}):
             assert client.post(f"/{kind}/save", headers=headers, json=invalid).status_code == 400
             assert settings.get_setting(current.section, "ENABLED", False) is False
@@ -333,6 +336,9 @@ def test_additional_console_routes_validate_protection_and_preserve_history(serv
         assert result.status_code == 200 and result.json()["enabled"]
         assert client.get(f"/{kind}/status").json()["state"] == "offline"
         assert client.post(f"/{kind}/disable", headers=headers).json()["enabled"] is False
+        result = client.post(f"/{kind}/save", headers=headers, json={**payload, "enabled": False})
+        assert result.status_code == 200 and result.json()["enabled"] is False
+        assert settings.get_setting(current.section, "ENABLED") is False
         assert settings.get_setting(current.section, "PORT" if kind == "davis" else "MODEL") == payload.get("port", payload.get("model"))
 
 

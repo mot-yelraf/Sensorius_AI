@@ -106,11 +106,11 @@ include them only if a complete device-configuration mirror is intended.
 
 Source locations inspected:
 
-- `/Users/twfarley/Projects/cPyNodus_II/cpynodus_ii/features/payloads.py`
-- `/Users/twfarley/Projects/cPyNodus_III/cpynodus_iii/features/payloads.py`
-- `/Users/twfarley/Projects/cPyNodus_III/cpynodus_iii/features/command_handlers.py`
-- `/Users/twfarley/Projects/cPyNodus_III/cpynodus_iii/features/publish_cycle.py`
-- `/Users/twfarley/Projects/cPyNodus_III/cpynodus_iii/features/web_handlers.py`
-- `/Users/twfarley/Projects/Sensorius_AI/sensorius/saiMQTTIngest.py`
+- `/path/to/cPyNodus_II/cpynodus_ii/features/payloads.py`
+- `/path/to/cPyNodus_III/cpynodus_iii/features/payloads.py`
+- `/path/to/cPyNodus_III/cpynodus_iii/features/command_handlers.py`
+- `/path/to/cPyNodus_III/cpynodus_iii/features/publish_cycle.py`
+- `/path/to/cPyNodus_III/cpynodus_iii/features/web_handlers.py`
+- `/path/to/Sensorius_AI/sensorius/saiMQTTIngest.py`
 
 No firmware or live device configuration was modified during this audit.

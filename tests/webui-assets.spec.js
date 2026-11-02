@@ -191,6 +191,7 @@ for (const width of gaugeSize === 'Large' ? [1280] : [1280, 390]) {
     }
     await page.getByRole('link', { name: 'Full Screen Graphs' }).click();
     await expect(page.locator('.fullscreen-metric-checkbox')).toHaveCount(1);
+    await page.locator('#fullscreenSensorOptions .graph-option-group > summary').click();
     await page.locator('.fullscreen-metric-checkbox').check();
     await expect.poll(() => page.evaluate(() => window.graphChart?.data.datasets[0]?.data.length || 0)).toBe(49);
     await expect.poll(() => page.locator('#fullscreen_graph').evaluate(painted)).toBe(true);

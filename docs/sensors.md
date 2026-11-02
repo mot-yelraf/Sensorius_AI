@@ -311,6 +311,8 @@ Direct weather-station acquisition also supports Davis Vantage Vue with a USB
 serial datalogger and the Oregon Scientific WMR100 USB family (WMR100, WMR100N,
 WMR88/A, WMR180/A, WMRS200). They run independently alongside Ecowitt and AcuRite,
 without WeeWX or GPIO, on Raspberry Pi, Linux, macOS and Windows. Expand
-**General Settings > Add Device > Weather Station** to configure them. See
+**General Settings > Add Device > Weather Station** to configure them. All four
+station types default to disabled. Set the **Enable** checkbox and save to apply
+the desired acquisition state. See
 [USB console support](weather_adapters.md#additional-usb-consoles) for exact
 hardware requirements and protocol-fixture validation limits.
