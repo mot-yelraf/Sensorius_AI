@@ -389,11 +389,14 @@ cards. Available arrows are blue; unavailable directions are dimmed and disabled
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Sensorius Dashboard Theme**: five thumbnails select the **Default** leaf
   pattern or the greenhouse **Root**, **Leaf**, **Flower**, and **Fruit** scenes.
-  The four greenhouse themes use matching pale Earth, Water, Air, and Fire
-  colors for metric and switch cards while retaining dark, high-contrast text.
+  The greenhouse themes use pale colors for metric and switch cards: beige for
+  **Root**, light green for **Leaf**, periwinkle for **Flower**, and peach for
+  **Fruit**, while retaining dark, high-contrast text.
   The **Theme** button at the bottom of **Display Device By** hides the
   dashboard tiles for an unobstructed temporary preview. Choose a theme from
   the bottom toolbar, then select **Save** to keep it and return to the dashboard.
+  Saving from either selector keeps the Display selection and card palette in sync.
+  Switching from a custom theme to a built-in theme restores its background and palette.
   **Return to Dashboard** leaves the saved theme unchanged. Select **Custom Theme**
   to create a named local collection containing one to five individually named background images. The
   theme section surfaces, selection outline, and Custom Theme action use the

@@ -45,7 +45,7 @@ body.dashboard-page.dashboard-theme-root{
   background-size:cover;
 }
 body.dashboard-page.dashboard-theme-leaf-crop{
-  --dashboard-card-bg:#cbdbed;
+  --dashboard-card-bg:#dcefd4;
   --dashboard-card-border:#5d8fc7;
   --dashboard-card-text:#102f44;
   background-color:#52765a;
@@ -55,7 +55,7 @@ body.dashboard-page.dashboard-theme-leaf-crop{
   background-size:cover;
 }
 body.dashboard-page.dashboard-theme-flower{
-  --dashboard-card-bg:#c4dcf8;
+  --dashboard-card-bg:#ccccff;
   --dashboard-card-border:#78a9b8;
   --dashboard-card-text:#132f38;
   background-color:#5f7758;
