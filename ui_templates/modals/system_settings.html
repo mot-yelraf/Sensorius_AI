@@ -2050,7 +2050,21 @@
   const root = document.getElementById("setupPiModal");
   if (!root || root.dataset.initialized === "1") return;
   root.dataset.initialized = "1";
-  const savedDisplayValues = new Map(Array.from(root.querySelectorAll('[data-runtime-section="system-display"] [name]'), control => [control.name, control.value]));
+  if (window.__savedDashboardThemeSelection) {
+    root.querySelectorAll('input[name="dashboard_background_theme"]').forEach(control => {
+      control.checked = control.value === window.__savedDashboardThemeSelection;
+    });
+  }
+  const savedDisplayValues = new Map(Array.from(root.querySelectorAll('[data-runtime-section="system-display"] [name]'))
+    .filter(control => !["radio", "checkbox"].includes(control.type) || control.checked)
+    .map(control => [control.name, control.value]));
+  document.addEventListener("dashboard-theme-saved", event => {
+    const theme = event.detail.theme;
+    root.querySelectorAll('input[name="dashboard_background_theme"]').forEach(control => {
+      control.checked = control.value === theme;
+    });
+    savedDisplayValues.set("dashboard_background_theme", theme);
+  });
 
 
   const shell = root.querySelector(".system-settings-shell");
@@ -3055,6 +3069,7 @@
     Array.from(document.body.classList)
       .filter((name) => name.startsWith("dashboard-theme-"))
       .forEach((name) => document.body.classList.remove(name));
+    document.body.removeAttribute("style");
     document.body.classList.add("dashboard-theme-" + theme);
   }
 

@@ -5573,6 +5573,8 @@ async function saveDashboardThemeSelection() {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || 'Could not save the theme. Please try again.');
     savedDashboardTheme = theme;
+    window.__savedDashboardThemeSelection = theme === 'leaf-crop' ? 'leaf_crop' : theme;
+    document.dispatchEvent(new CustomEvent('dashboard-theme-saved', {detail: {theme: window.__savedDashboardThemeSelection}}));
     applyDashboardPreviewTheme(theme);
     closeDashboardThemeView();
   } catch (error) {
