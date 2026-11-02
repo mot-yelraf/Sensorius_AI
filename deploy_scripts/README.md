@@ -140,8 +140,8 @@ The last two fields are optional. Keep the empty post-deploy field when only a
 runtime Python override is needed:
 
 ```text
-sensoria-hub-0|/home/twfarley/Sensorius||/home/twfarley/py311/bin/python
-sensorius-hub-3|/home/twfarley/Sensorius|sudo systemctl restart sensorius.service|/home/twfarley/py313/bin/python
+sensor-hub|/home/<user>/Sensorius||/home/<user>/Sensorius/.venv/bin/python
+headless-hub|/home/<user>/Sensorius|sudo systemctl restart sensorius.service|/home/<user>/Sensorius/.venv/bin/python
 ```
 
 Usage:
@@ -164,7 +164,7 @@ deploy_scripts/deploy_sai.sh --apply --skip-deps
 To update one configured host without touching the rest of the inventory:
 
 ```bash
-deploy_scripts/deploy_sai.sh --apply --host sensorius-hub-1
+deploy_scripts/deploy_sai.sh --apply --host sensor-hub
 ```
 
 ## Weather console USB support

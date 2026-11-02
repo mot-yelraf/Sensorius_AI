@@ -460,8 +460,8 @@ The polling MVP is complete when:
 ## Suggested VS Code Codex Prompt
 
 ```text
-Read /Users/twfarley/Projects/Sensorius_AI/AGENTS.md and then read
-/Users/twfarley/Projects/Sensorius_AI/docs/ecowitt_gateway_implementation.md in
+Read /path/to/Sensorius_AI/AGENTS.md and then read
+/path/to/Sensorius_AI/docs/ecowitt_gateway_implementation.md in
 full. Implement the Ecowitt GW1100 polling MVP described there. Inspect the
 existing WeeWX, data-logger, settings, Add Device, Home Assistant, forecast,
 and supervisor implementations before editing. Keep the change minimal and

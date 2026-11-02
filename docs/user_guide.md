@@ -18,13 +18,8 @@ The dashboard is the main operating view. It is where you check current conditio
 ![Sensorius dashboard with At a Glance arrangement arrows and live sensor graphs and gauges](<../assets/screenshots/dashboard-overview.png>)
 <!-- pdf-keep-together:end -->
 
-The dashboard example was captured from the running Sensorius app with live
-metric graphs and gauges and the **Fruit** dashboard theme selected. The Sensor
-Settings and Switch Settings tile-style panes and the finish examples were captured
-from Samhain. Most other settings screenshots use example devices and locations
-with the same warm peach-and-brown palette. Sensor
-names, locations, metrics, switch channels, forecast source, selected theme,
-and live values will vary by installation.
+Sensor names, locations, metrics, switch channels, forecast source, selected
+theme, and displayed values vary by installation.
 
 The dashboard header centers the Sensorius image between individual pill buttons for
 the full-screen graph (left) and General Settings (right).
@@ -49,7 +44,8 @@ interface:
   to collapse the content.
 - On desktop, General Settings sections, integration blocks, and other expandable
   panes use these same right/down disclosure triangles. Phone settings use the
-  menu navigation described below.
+  menu navigation described below. Menu sections start collapsed after Sensorius
+  restarts, including Add Device, theme subsections, and Graphum selectors.
 - A dashboard Sensor Group shows a disclosure triangle only when it has more
   than six Sensor Tiles. The first six Sensor Tiles remain visible when the
   group is collapsed.
@@ -821,8 +817,7 @@ Expand **Weather Station** for **Ecowitt Gateway**, **AcuRite USB Console**,
 **Davis Vue USB Console**, and **Oregon Scientific USB Console**. Each station
 section expands and collapses independently. See [USB console support](weather_adapters.md#additional-usb-consoles)
 for supported hardware and configuration.
-The descriptions below follow the same order. Screenshots use the running
-Sensorius app on samhain; private network values are replaced with examples.
+The descriptions below follow the same order.
 
 #### Nodus Device
 
@@ -832,10 +827,6 @@ in a browser on another computer does not change the hub's onboarding method.
 ##### Nodus on Linux and Raspberry Pi
 
 ![Add Device Nodus pane: Linux/Raspberry Pi platform preview](<../assets/screenshots/system-settings-add-device-linux-rpi.png>)
-
-The image previews the Linux/Raspberry Pi workflow using samhain’s live page
-with an example Linux scan response. Samhain itself runs macOS; this is not a
-physical Linux/Pi onboarding capture. No onboarding was performed.
 
 On Linux and Raspberry Pi, Sensorius scans for the Nodus setup access point,
 joins it, sends the bootstrap configuration, and restores the previous network.
@@ -855,7 +846,7 @@ SSH process, during this transition.
 
 ##### Nodus on macOS
 
-![Add Device Nodus pane on macOS](<../assets/screenshots/system-settings-add-device-macos.png>)
+![Add Device pane on macOS with Weather Station expanded](<../assets/screenshots/system-settings-add-device-macos.png>)
 
 macOS requires administrator authorization when an application changes Wi-Fi
 networks programmatically and may request the administrator username and
@@ -1221,7 +1212,7 @@ The four finishes use the same readings, gauge zones, and graph colors:
 
 Automation-enabled switch state cells use a darker version of the selected metal face: silver for Chrome and brass for Brass or Mahogany & Brass. Theme keeps its light green automation highlight.
 
-These live examples come from Samhain. Theme, Chrome, and Brass are sensor tiles;
+Theme, Chrome, and Brass are sensor tiles;
 Mahogany & Brass is a switch location card. Click an image to see it at full size.
 
 <table>
@@ -1235,10 +1226,10 @@ Mahogany & Brass is a switch location card. Click an image to see it at full siz
   </thead>
   <tbody>
     <tr>
-      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-theme.png"><img src="../assets/screenshots/metric-tile-style-theme.png" alt="Live Theme temperature graph tile on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
-      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-chrome.png"><img src="../assets/screenshots/metric-tile-style-chrome.png" alt="Live Chrome pressure gauge with a silver metal face and round bezel on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
-      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-brass.png"><img src="../assets/screenshots/metric-tile-style-brass.png" alt="Live Brass light intensity graph with an inset panel and riveted gold frame on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
-      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/switch-tile-style-mahogany-brass.png"><img src="../assets/screenshots/switch-tile-style-mahogany-brass.png" alt="Live Mahogany and Brass switch card with a wood background and brass table and event graph frames on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-theme.png"><img src="../assets/screenshots/metric-tile-style-theme.png" alt="Live Theme temperature graph tile" width="100%" style="display:block;margin:0 auto;"></a></td>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-chrome.png"><img src="../assets/screenshots/metric-tile-style-chrome.png" alt="Live Chrome pressure gauge with a silver metal face and round bezel" width="100%" style="display:block;margin:0 auto;"></a></td>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-brass.png"><img src="../assets/screenshots/metric-tile-style-brass.png" alt="Live Brass light intensity graph with an inset panel and riveted gold frame" width="100%" style="display:block;margin:0 auto;"></a></td>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/switch-tile-style-mahogany-brass.png"><img src="../assets/screenshots/switch-tile-style-mahogany-brass.png" alt="Live Mahogany and Brass switch card with a wood background and brass table and event graph frames" width="100%" style="display:block;margin:0 auto;"></a></td>
     </tr>
   </tbody>
 </table>

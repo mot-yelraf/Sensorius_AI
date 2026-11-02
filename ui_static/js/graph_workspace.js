@@ -695,10 +695,9 @@ function toggleCustomTime(enabled){ const el = document.getElementById('custom_t
         const payload = await fetchJSON('/sensor-metrics?sensor_id=' + encodeURIComponent(sensor));
         return { sensor: String(sensor), metrics: graphMetricPayloadNames(payload) };
       }));
-      results.forEach(function(entry, index){
+      results.forEach(function(entry){
         if(!entry.metrics.length) return;
         const group = graphOptionGroup(entry.sensor, (sensorLocations || {})[entry.sensor]);
-        if(index === 0) group.details.open = true;
         entry.metrics.forEach(function(metric){
           const display = entry.sensor + ' · ' + graphMetricLabel(metric);
           group.items.appendChild(graphCheckboxRow('fullscreen-metric-checkbox', graphMetricLabel(metric), {

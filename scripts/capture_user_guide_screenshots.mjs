@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {mkdir, mkdtemp, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -60,6 +60,9 @@ const payloads = {
     ]},
   '/advanced/automations': {items: [{rule_id: 'greenhouse-cooling', switch_id: '__system__', enabled: true,
     script_json: JSON.stringify({name: 'Greenhouse cooling', enabled: true, conditions: [], actions: [{type: 'none'}]})}]},
+  '/sensor-ids': ['avpd-demo02', 'lux-demo01'],
+  '/sensor-metrics': ['Temperature', 'Rel-Humidity', 'Ambient VPD', 'Light Intensity'],
+  '/graph-setups': {setups: []},
   '/sensor-directory': [], '/notifications/rules': {rules: []},
   '/timezone-options': {options: ['UTC']},
 };
@@ -89,10 +92,23 @@ try {
   let blockedWrites = 0;
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
-    if (url.origin !== origin) return route.fulfill({contentType: 'application/javascript', body: ''});
+    if (url.origin !== origin) {
+      const library = [
+        ['gaugeJS', 'gaugeJS/dist/gauge.min.js'],
+        ['chart.js@', 'chart.js/dist/chart.umd.js'],
+        ['chartjs-adapter', 'chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js'],
+        ['chartjs-plugin-annotation', 'chartjs-plugin-annotation/dist/chartjs-plugin-annotation.min.js'],
+      ].find(([key]) => url.href.includes(key));
+      return route.fulfill({contentType: 'application/javascript', body: library ? await readFile(path.join(root, 'node_modules', library[1])) : ''});
+    }
     if (route.request().method() !== 'GET') {
       blockedWrites++;
       return route.fulfill({status: 405, json: {ok: false, error: 'Documentation capture is read-only'}});
+    }
+    if (url.pathname === '/graph-data') {
+      const key = `${url.searchParams.get('sensor_id') || 'avpd-demo02'}::${url.searchParams.get('metric1') || 'Ambient VPD'}`;
+      const ts = Array.from({length: 49}, (_, i) => new Date(now - 86400000 + i * 1800000).toISOString());
+      return route.fulfill({json: {series: {[key]: {ts, vals: ts.map((_, i) => 1.2 + Math.sin(i / 8) * .3)}}}});
     }
     if (Object.hasOwn(payloads, url.pathname)) return route.fulfill({json: payloads[url.pathname]});
     if (['/edit-system', '/edit-sensor', '/edit-switch'].includes(url.pathname)) {
@@ -146,6 +162,11 @@ try {
     if (pane) await modal.getByRole('button', {name: pane, exact: true}).click();
     if (section) {
       await modal.locator('details').evaluateAll(details => details.forEach(detail => { detail.open = false; }));
+      await modal.locator('details').evaluateAll((details, label) => {
+        const target = details.find(detail => detail.querySelector(':scope > summary')?.textContent.trim() === label);
+        if (!target) throw new Error('Documentation section not found');
+        for (let ancestor = target.parentElement.closest('details'); ancestor; ancestor = ancestor.parentElement.closest('details')) ancestor.open = true;
+      }, section);
       await modal.getByText(section, {exact: true}).filter({visible: true}).click();
     }
     assert.equal(await modal.locator('#hostname').inputValue(), 'hub.example.com');
@@ -226,9 +247,18 @@ try {
     payloads['/scan-nodus-setup'] = {platform, found: platform === 'Linux', ssids: ['Nodus_Setup'],
       manual_join_required: platform === 'Darwin', current_ssid: 'Example Garden',
       message: platform === 'Darwin' ? 'Join a Nodus setup network in macOS Wi-Fi, then click Add.' : 'Nodus setup network found'};
-    await systemCapture(`system-settings-add-device-${filename}.png`, 'Add Device', 'Nodus Device', async page => {
-      await page.waitForFunction(() => !document.querySelector('#btn-onboard-add').disabled);
+    await systemCapture(`system-settings-add-device-${filename}.png`, 'Add Device', platform === 'Darwin' ? 'Weather Station' : 'Nodus Device', async (page, modal) => {
+      if (platform === 'Darwin') {
+        await page.setViewportSize({width: 1400, height: 1000});
+        assert.equal(await modal.locator('#add-nodus-section').evaluate(element => element.open), false);
+        assert.equal(await modal.locator('#add-weather-section').evaluate(element => element.open), true);
+        assert.equal(await modal.locator('#add-weather-section details').count(), 4);
+        assert.equal(await modal.locator('#add-weather-section details[open]').count(), 0);
+      } else {
+        await page.waitForFunction(() => !document.querySelector('#btn-onboard-add').disabled);
+      }
     });
+    if (platform === 'Linux') await systemCapture('system-settings-add-device.png', 'Add Device', 'Nodus Device');
   }
   if (shouldCapture('sai_mobile_settings_1.png')) {
     const mobile = await pageWithDashboard();
@@ -248,6 +278,19 @@ try {
     await modal.getByRole('button', {name: kind === 'sensor' ? 'Sensor Info' : 'Switch Info', exact: true}).click();
     await page.waitForFunction(() => document.querySelector('.modal:not(#setupPiModal) [data-stat-value="last-packet"]')?.textContent.includes('5s'));
     await auditAndCapture(page, modal, filename);
+    await page.close();
+  }
+  for (const filename of ['graph-vpd-24-hour.png', 'sai_mobile_graph_selectors.png']) {
+    if (!shouldCapture(filename)) continue;
+    const page = await pageWithDashboard();
+    const mobile = filename.startsWith('sai_mobile');
+    if (mobile) await page.setViewportSize({width: 390, height: 844});
+    await page.getByRole('link', {name: 'Full Screen Graphs'}).click();
+    await page.locator('#fullscreenSensorOptions .graph-option-group > summary').first().click();
+    await page.locator('.fullscreen-metric-checkbox[data-sensor="avpd-demo02"][data-metric="Ambient VPD"]').check();
+    await page.waitForFunction(() => window.graphChart?.data.datasets[0]?.data.length === 49);
+    if (mobile) await page.locator('.fullscreen-graph-body').evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await auditAndCapture(page, page.locator('#fullscreen_graph_container'), filename);
     await page.close();
   }
   assert.equal(blockedWrites, 0, 'A documentation capture attempted to mutate runtime state');

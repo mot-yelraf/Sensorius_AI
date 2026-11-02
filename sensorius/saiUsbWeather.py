@@ -89,6 +89,9 @@ class UsbWeatherIngest:
         """Validate the complete family configuration before writing through settings."""
         if not isinstance(payload, dict):
             raise ValueError("Expected a console configuration object.")
+        enabled = payload.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError("Enabled must be a boolean.")
         interval = payload.get("poll_interval_sec", 60)
         if isinstance(interval, bool) or not str(interval).isdigit() or not 60 <= int(interval) <= 3600:
             raise ValueError("Data retrieval interval must be 60–3600 seconds.")
@@ -107,7 +110,7 @@ class UsbWeatherIngest:
             if not isinstance(serial, str) or len(serial) > 128 or any(ord(c) < 32 for c in serial):
                 raise ValueError("Invalid USB serial number.")
             updates.extend(((self.section, "MODEL", model), (self.section, "USB_SERIAL", serial.strip())))
-        updates.append((self.section, "ENABLED", True))
+        updates.append((self.section, "ENABLED", enabled))
         self.settings.set_many_in_memory(updates)
         self.settings.save_settings()
         self.adapter.reset()

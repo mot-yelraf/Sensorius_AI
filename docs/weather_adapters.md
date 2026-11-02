@@ -168,9 +168,11 @@ Open **General Settings > Add Device > Weather Station**, then expand the consol
 section. Davis requires a local port, for example `/dev/ttyUSB0` on Linux/Pi,
 `/dev/cu.usbserial-123` on macOS, or `COM3` on Windows. Baud defaults to 19200.
 Oregon requires selecting a supported model; leave the USB serial blank when
-only one matching console is attached. Close competing readers first. Save to
-enable acquisition without restarting Sensorius. Disable releases USB ownership
-while retaining history. Retrieval intervals are 60–3600 seconds. AcuRite and
+only one matching console is attached. Close competing readers first. All four
+station types are disabled by default. The **Enable** checkbox shows the saved
+state when the section opens. Select **Enable** and save to start acquisition
+without restarting Sensorius; clear it and save to stop acquisition and release
+USB ownership while retaining settings and history. Retrieval intervals are 60–3600 seconds. AcuRite and
 Davis device requests follow their configured intervals, including retries.
 Oregon continuously drains bounded USB report batches because the console pushes
 a stream; its **Snapshot interval** controls saved snapshots rather than device

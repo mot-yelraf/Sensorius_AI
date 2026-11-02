@@ -36,7 +36,7 @@ Canonical `/itaot-init` request:
   "password": "my-password",
   "hostname": "co2-ykdvea",
   "mqtt": {
-    "broker_host": "samhain.local",
+    "broker_host": "sensorius-broker.local",
     "broker_port": 1883
   },
   "time": {
