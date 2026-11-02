@@ -67,7 +67,7 @@ WEEWX_GAUGE_CONFIG = {
     },
     "Rain": {
         "unit": "in",
-        "display_precision": 1,
+        "display_precision": 2,
         "min": 0,
         "max": 5,
         "ticks": [0, 0.25, 0.5, 1, 2, 3, 5],

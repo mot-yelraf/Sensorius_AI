@@ -112,7 +112,7 @@ async def test_rain_baseline_is_source_and_sample_specific_and_commits_after_wri
     counter[0] = .05
     service._last_write = float("-inf")
     original = logger.log_readings
-    monkeypatch.setattr(logger, "log_readings", lambda *args: False)
+    monkeypatch.setattr(logger, "log_readings", lambda *args, **kwargs: False)
     with pytest.raises(RuntimeError, match="saved"):
         await service.poll_once()
     assert service._baseline == baseline

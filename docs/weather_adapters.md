@@ -88,13 +88,23 @@ AcuRite's rolling tip counter is distinct from daily/lifetime rain. The first
 counter establishes a baseline. Only a newer counter from the same console and
 RF sensor can produce interval `Rain`; repeated counter timestamps cannot emit
 the same rain twice. A plausible rollover from above 80 inches to below 2 inches
-uses the 81.92-inch modulus. Other backwards changes rebaseline. Baselines commit
-only after a successful database write. RF loss, disconnects, configuration
-changes, process restarts and gaps exceeding twice the retrieval interval reset
-the baseline. Rain during those gaps is unavailable; it is not manufactured as
-zero. Raw counters and baselines are not persisted. This conservative limitation
-avoids a database schema change and should be revisited before archive recovery
-or gap-spanning rainfall is offered.
+uses the 81.92-inch modulus. Other backwards changes rebaseline. The
+`weather_rain_counters` SQLite table checkpoints the source, counter and sample
+time in the same transaction as its readings. RF loss, disconnects and process
+restarts retain this baseline. The next newer counter from the same source
+accounts for rain across gaps of up to 24 hours. Longer gaps establish a new
+baseline without assigning potentially older rainfall to the current 24-hour
+window. Source changes also establish a new baseline. Missing reports remain
+unavailable rather than zero; repeated counter timestamps cannot duplicate rain.
+Several valid increments within one minute all contribute to AcuRite's rolling
+sum. Other station families retain their existing deduplication behavior.
+
+`Rain` is the increment since the previous valid counter, not the console's
+midnight-reset Today total. `Rain Last 24h` sums recorded increments over a
+rolling window. Rain recovered after a gap is recorded at the recovery sample;
+its exact distribution within the gap is unknown. Previously discarded rain
+cannot be reconstructed from existing readings. The first deployment creates
+its baseline from the next valid counter and does not backfill console totals.
 
 ## Extending support
 

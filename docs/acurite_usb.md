@@ -3,8 +3,8 @@
 In **General Settings > Add Device > AcuRite USB Console**, choose the configured
 console family, optionally enter its USB serial, select a retrieval interval
 (60–3600 seconds), and choose **Save Console**. Saving enables acquisition even
-if the console is currently unplugged. Status reports connection and RF errors;
-initial fields can take up to two minutes to arrive. Ecowitt and Nodus devices
+if the console is currently unplugged. Status reports connection and RF errors.
+Initial fields become available as their report types are received. Ecowitt and Nodus devices
 continue operating independently. **Disable** retains station settings/history.
 
 Profiles cover 01536-RX/06056, 01025, 01035, 01036/01092/06006, 01525 and
@@ -18,12 +18,21 @@ These devices aggregate outdoor sensors over RF. Live fields include outdoor
 temperature/RH, wind speed/direction, indoor temperature and uncorrected Station Pressure.
 USB requests follow the configured retrieval interval, including retries; the
 setting controls acquisition as well as saved snapshots. Changes apply without
-a restart. Alternating outdoor reports may need two retrievals to populate all
-fields. Fields expire individually after the greater of 120 seconds or twice
+a restart. Outdoor R1 reports contain either wind/rain or wind/temperature/RH;
+repeated retrievals of one type cannot populate the other type's fields.
+Fields expire individually after the greater of 120 seconds or twice
 the configured interval. No live indoor humidity or measured gust is exposed by this adapter.
 Unknown pressure calibration is rejected without discarding valid outdoor data.
 See the [adapter contract](weather_adapters.md) for rain semantics and extension
 instructions. All profiles need physical model/platform validation.
+
+The [WeeWX AcuRite driver](https://github.com/weewx/weewx/blob/master/src/weewx/drivers/acurite.py)
+is interface reference material, not a runtime dependency. Sensorius implements
+the HID input-report requests independently: interface 0, report 1 with 10 bytes
+and report 2 with 25 bytes. Unlike WeeWX's separate 18-second outdoor and
+60-second console scheduling, Sensorius keeps device requests inside the
+configured acquisition cadence. Archive report R3 is not requested; the upstream
+driver notes firmware problems with archive access on some consoles.
 
 ## Connection status and reporting uptime
 
@@ -41,6 +50,15 @@ discarded; two consecutive invalid outdoor reports invalidate the outdoor data.
 A valid outdoor report resets the invalid-report counter. The status endpoint
 includes `usb_read_failures` and `invalid_outdoor_reports` for diagnosis.
 
+In outdoor R1 reports, the channel/ID byte uses bits 7:6 for channel A/B/C,
+bits 5:4 for the transmission sequence, and bits 3:0 for the high sensor-ID
+bits. Sequence changes must not reject a report, change sensor identity, or
+invalidate cached fields. The reserved channel encoding remains invalid.
+The [rtl_433 5-in-1 decoder](https://github.com/merbanan/rtl_433/blob/master/src/devices/acurite.c)
+documents this channel/sequence layout. AcuRite's
+[PC Connect documentation](https://support.acurite.com/hc/en-us/articles/360021589213-PC-Connect-Frequently-Asked-Questions)
+describes connection and update behavior, rather than a byte-level USB API.
+
 Tolerated failures retain previously valid samples with their original timestamps;
 they do not refresh outdoor sample age or use rejected report values. Reported
 zero RF signal still invalidates outdoor data immediately, and outdoor samples
@@ -52,7 +70,11 @@ amber while acquisition retries. A failure lasting at least 60
 seconds since the last healthy sample is confirmed offline at the next sampler
 check and turns the indicator red. Recovery returns it to green. The retry
 window affects health display and offline-event counting; rejected reports are
-never used as readings, and rain baselines reset on confirmed RF/USB loss.
+never used as readings. Rain counter checkpoints survive RF/USB loss and hub
+restarts, independently of outdoor sample freshness. A newer counter from the
+same source recovers accumulated rain across gaps up to 24 hours; longer gaps
+and counter resets establish a new baseline. See the
+[rain accounting contract](weather_adapters.md) for rollover and history limits.
 
 **Reporting uptime** starts at the first healthy sample in the current hub
 process and restarts after a confirmed outage. Brief retries preserve the
