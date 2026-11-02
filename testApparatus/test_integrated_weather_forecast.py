@@ -1066,3 +1066,51 @@ def test_usb_console_current_readings_expose_health_and_retrieval_interval(kind,
     assert payload["battery_status"] == "UNKNOWN"
     assert payload["refresh_interval_sec"] == 300
     assert payload["thermal_metrics"]
+
+
+def test_caelus_station_tiles_include_all_metrics_and_dashboard_statistics(tmp_path):
+    class Settings(_Settings):
+        values = {("Display", "unit_system"): "Metric", ("Display", "display_style"): "Graph24hr"}
+
+    class Logger:
+        db_path = ":memory:"
+        calls = 0
+
+        def get_available_metrics(self, sensor_id):
+            self.calls += 1
+            return ["Temperature", "Wind Direction", "Wind Speed", "UV Index", "Solar Radiation"]
+
+    class Sensors:
+        def get_display_styles(self, sensor_id, default_style="Gauge"):
+            return ["Graph24hr", "Graph6hr", "Gauge", "Gauge", "Graph24hr", "Gauge"]
+
+    class Stats:
+        def get_24hr_stats(self, sensor_id):
+            return {"Wind Speed": {"min": 1, "avg": 3, "max": 5,
+                                   "min_ts": "2026-11-02T01:00:00-07:00", "max_ts": "2026-11-02T02:00:00-07:00",
+                                   "trend": {"rate_per_hour": 2, "samples": 10}}}
+
+    logger = Logger()
+    service = weather_app.WeatherForecastAppService(settings=Settings(), data_logger=logger,
+                                                    sensor_settings_manager=Sensors(), statter=Stats())
+    service.theme_manager = weather_app.ThemeManager(tmp_path)
+    configured = ["Temperature", "Rel-Humidity", "Rain", "Rain Last 24h", "Wind Direction", "Gateway Baro-Pressure"]
+    values = {"Temperature": 20, "Rel-Humidity": 60, "Rain": 0, "Rain Last 24h": .5,
+              "Wind Direction": 250, "Gateway Baro-Pressure": 1012, "Wind Speed": 6, "Dew Point": 10, "UV Index": 3}
+    tiles, available = service.station_metrics("ecowitt-test", values, configured)
+    by_metric = {tile["metric"]: tile for tile in tiles}
+    assert available is True
+    assert [tile["metric"] for tile in tiles[:6]] == configured
+    assert {"Wind Speed", "Dew Point", "UV Index", "Solar Radiation"} <= by_metric.keys()
+    assert by_metric["Solar Radiation"]["value"] is None
+    assert by_metric["Temperature"]["display_style"] == "Graph24hr"
+    assert by_metric["Dew Point"]["display_style"] == "Graph24hr"
+    direction = by_metric["Wind Direction"]
+    assert direction["gauge_value"] == 250
+    assert direction["value"] == pytest.approx(9.656064)
+    assert direction["unit"] == "km/h"
+    assert direction["statistics"]["avg"] == pytest.approx(4.828032)
+    assert direction["statistics"]["min_ts"] == "2026-11-02T01:00:00-07:00"
+    assert direction["statistics"]["trend"]["rate_per_hour"] == 2
+    service.station_metrics("ecowitt-test", values, configured)
+    assert logger.calls == 1

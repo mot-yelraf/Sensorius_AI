@@ -327,9 +327,9 @@ def test_weewx_wind_direction_micrograph_renders_speed_banded_wind_rose():
     assert "{ min: 5, max: 15, label: '5-15', color: '#5290bf' }" in html
     assert "{ min: 15, max: 30, label: '15-30', color: '#2e6396' }" in html
     assert "{ min: 30, max: Infinity, label: '30+', color: '#0b376d' }" in html
-    assert "const speedConfig = gaugeConfig?.['Wind Speed'] || {};" in html
-    assert "Math.ceil(convertForDisplay(value, speedConfig) ?? value)" in html
-    assert "const speed = convertForDisplay(rawSpeed, speedConfig);" in html
+    assert "return renderWindRose(canvas, directionSeries, speedSeries, rangeLabel, gaugeConfig?.['Wind Speed'] || {}, chartMap);" in html
+    assert "Math.ceil(convertMetricValue(value, speedConfig) ?? value)" in html
+    assert "const speed = convertMetricValue(rawSpeed, speedConfig);" in html
     assert "ctx.fillText(speedUnit, width - 3, legendY);" in html
     assert "renderWindRoseMicrograph(canvas, seriesObj, speedSeries, xTitleText)" in html
     assert "canvas.setAttribute('aria-label', `${rangeLabel} wind rose." in html

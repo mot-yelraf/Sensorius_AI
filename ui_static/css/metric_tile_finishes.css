@@ -1,0 +1,120 @@
+.metric-container[data-tile-style="Chrome"],
+.metric-container[data-tile-style="Brass"],
+.metric-container[data-tile-style="Mahogany & Brass"],
+.switch-metric-container[data-tile-style="Chrome"],
+.switch-metric-container[data-tile-style="Brass"],
+.switch-metric-container[data-tile-style="Mahogany & Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Chrome"],
+body.dashboard-page .sensor-group-header[data-tile-style="Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Mahogany & Brass"],
+.switch-card-title-row[data-tile-style="Chrome"],
+.switch-card-title-row[data-tile-style="Brass"],
+.switch-card-title-row[data-tile-style="Mahogany & Brass"],
+.station-metrics-toggle[data-tile-style="Chrome"],
+.station-metrics-toggle[data-tile-style="Brass"],
+.station-metrics-toggle[data-tile-style="Mahogany & Brass"]{
+  --tile-rim:linear-gradient(135deg,#f9fcff 0%,#9aa3ab 19%,#f5f8fa 34%,#646e78 50%,#e9eef2 67%,#8a949e 84%,#f7fafc 100%);
+  --tile-panel:linear-gradient(135deg,#f3f7f9,#bbc6cc 24%,#d8e1e6 40%,#aab9c2 53%,#e5edf1 74%,#c2cdd3 90%,#f2f7fa);
+  --tile-edge:#78828c;
+  --tile-bezel:conic-gradient(from -35deg,#5d6872,#faffff 12%,#8c969e 24%,#e4edf2 39%,#64707a 53%,#f8fdff 69%,#818b94 84%,#dce7ee 94%,#5d6872);
+  --tile-dial:linear-gradient(135deg,#f0f4f5,#c2ccd2 35%,#e6ecef 62%,#acbac2);
+  background:var(--tile-panel);color:#17232b;border-color:var(--tile-edge);
+  box-shadow:inset 0 1px 2px #fff9,inset 0 -2px 3px #0006,0 3px 6px #0004;
+}
+.metric-container[data-tile-style="Brass"],
+.metric-container[data-tile-style="Mahogany & Brass"],
+.switch-metric-container[data-tile-style="Brass"],
+.switch-metric-container[data-tile-style="Mahogany & Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Mahogany & Brass"],
+.switch-card-title-row[data-tile-style="Brass"],
+.switch-card-title-row[data-tile-style="Mahogany & Brass"],
+.station-metrics-toggle[data-tile-style="Brass"],
+.station-metrics-toggle[data-tile-style="Mahogany & Brass"]{
+  --tile-rim:linear-gradient(135deg,#e8cc8e 0%,#8a622c 19%,#d6b46c 34%,#573b1d 50%,#cba35a 67%,#92703a 84%,#eed49b 100%);
+  --tile-panel:linear-gradient(135deg,#ead59f,#c3a066 24%,#dfc286 40%,#b99352 53%,#ddbe7d 74%,#c5a36b 90%,#ead59f);
+  --tile-edge:#684a27;
+  --tile-bezel:conic-gradient(from -35deg,#614221,#e6cb8c 12%,#9e7538 24%,#d8b568 39%,#65431f 53%,#f0d79b 69%,#987039 84%,#d0aa60 94%,#614221);
+  --tile-dial:repeating-conic-gradient(from -35deg,#fff2bd03 0deg .4deg,#4e321303 .5deg .85deg,transparent .9deg 1.6deg),conic-gradient(from -40deg,#ceb174,#efdaa3 11%,#c09c59 24%,#dcc087 35%,#f1dda7 49%,#bd9956 64%,#e5c98e 80%,#ceb174);
+  /* Keep rivet centers on the midpoint of the fixed 11px bezel at every tile size. */
+  --tile-bezel-rivets:radial-gradient(circle at calc(50.00000% + 0.00000px) calc(0.00000% + 5.50000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75.00000% - 2.75000px) calc(6.69873% + 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(93.30127% - 4.76313px) calc(25.00000% + 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100.00000% - 5.50000px) calc(50.00000% + 0.00000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(93.30127% - 4.76313px) calc(75.00000% - 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75.00000% - 2.75000px) calc(93.30127% - 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(50.00000% - 0.00000px) calc(100.00000% - 5.50000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25.00000% + 2.75000px) calc(93.30127% - 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(6.69873% + 4.76313px) calc(75.00000% - 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(0.00000% + 5.50000px) calc(50.00000% - 0.00000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(6.69873% + 4.76313px) calc(25.00000% + 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25.00000% + 2.75000px) calc(6.69873% + 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px);
+  --tile-frame-rivets:radial-gradient(circle at 5px 5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 5px) 5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 5px calc(100% - 5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 5px) calc(100% - 5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25% + 2.5px) 3.5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25% + 2.5px) calc(100% - 3.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 3.5px calc(25% + 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 3.5px) calc(25% + 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(50% + 0px) 3.5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(50% + 0px) calc(100% - 3.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 3.5px calc(50% + 0px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 3.5px) calc(50% + 0px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75% - 2.5px) 3.5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75% - 2.5px) calc(100% - 3.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 3.5px calc(75% - 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 3.5px) calc(75% - 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px);
+}
+.metric-container[data-tile-style="Mahogany & Brass"],
+.switch-metric-container[data-tile-style="Mahogany & Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Mahogany & Brass"],
+.switch-card-title-row[data-tile-style="Mahogany & Brass"],
+.station-metrics-toggle[data-tile-style="Mahogany & Brass"]{
+  background:repeating-linear-gradient(3deg,#ffffff04 0 1px,#19050014 2px 3px,transparent 4px 9px),linear-gradient(100deg,#3b150f,#833f29 30%,#542319 53%,#743620 75%,#36130e);
+  color:#fff0ce;border-color:#ac853b;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view{
+  position:relative;width:100%;height:auto;aspect-ratio:1;border-radius:50%;
+  background:var(--tile-bezel);color:#27313a;
+  box-shadow:0 2px 4px #0009,0 0 0 1px #513c25,inset 0 1px 1px #fff;
+  margin:.15rem 0 .6rem;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view::before{
+  content:"";position:absolute;inset:11px;pointer-events:none;border-radius:50%;background:var(--tile-dial);
+  box-shadow:0 0 0 1px #fff7,0 0 0 3px #0003,inset 0 2px 5px #0007,inset 0 -1px 2px #fff9;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view::after{
+  content:"";position:absolute;inset:3px;pointer-events:none;border:1px solid #fff7;border-radius:50%;
+  background-image:var(--tile-bezel-rivets,linear-gradient(135deg,#fff3,transparent 45%,transparent 70%,#00000008));
+  background-origin:border-box;background-repeat:no-repeat;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view canvas{
+  position:relative;margin:0;transform:scale(.84) translateY(var(--gauge-center-shift,0%));z-index:1;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view{
+  position:relative;width:100%;height:auto;aspect-ratio:1;padding:10px;box-sizing:border-box;
+  border-radius:8px;background:var(--tile-dial);color:#17232b;
+  box-shadow:0 0 0 1px #0009,0 2px 2px #fff7,inset 0 3px 9px #28342080;
+  margin:.15rem 0 .6rem;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view::before{
+  content:"";position:absolute;inset:0;pointer-events:none;border:7px solid transparent;border-radius:8px;
+  background-image:var(--tile-frame-rivets,linear-gradient(transparent,transparent)),var(--tile-rim);
+  background-origin:border-box;background-repeat:no-repeat;
+  mask:linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0);mask-composite:exclude;
+  z-index:2;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view::after{
+  content:"";position:absolute;inset:7px;pointer-events:none;border-radius:2px;
+  background:repeating-linear-gradient(0deg,#24342009 0 1px,transparent 1px 3px),linear-gradient(145deg,#ffffff26,transparent 48%,#53624614);
+  box-shadow:inset 0 3px 6px #17200f88,inset 2px 0 4px #17200f55,inset 0 -1px 1px #faffdf99;
+  z-index:1;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view canvas{
+  width:100% !important;height:auto !important;margin:0;
+}
+.metric-container[data-tile-style="Mahogany & Brass"] .trend-arrow{color:#fff0ce;}
+.metric-container:is([data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view::after{
+  inset:0;border-color:transparent;
+}

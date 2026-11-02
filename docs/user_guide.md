@@ -393,23 +393,42 @@ cards. Available arrows are blue; unavailable directions are dimmed and disabled
   colors for metric and switch cards while retaining dark, high-contrast text.
   The **Theme** button at the bottom of **Display Device By** hides the
   dashboard tiles for an unobstructed temporary preview. Choose a theme from
-  the bottom toolbar, then select **Return to Dashboard**; saved settings are
-  not changed by previewing. Select **Custom Theme** to create a named local
-  collection containing one to five individually named background images. The
+  the bottom toolbar, then select **Save** to keep it and return to the dashboard.
+  **Return to Dashboard** leaves the saved theme unchanged. Select **Custom Theme**
+  to create a named local collection containing one to five individually named background images. The
   theme section surfaces, selection outline, and Custom Theme action use the
   active dashboard palette; the Display **Save** button retains its standard
   blue action color.
 - **Caelus Theme**: five thumbnails select the default **Pollinator** pattern,
   **Mountain Garden**, **Sunny Beach**, **Forest River**, or **Desert Bloom**
-  for the full-screen forecast. Its **Custom Theme** button adds custom forecast
-  backgrounds through the same creator.
+  for the full-screen forecast. Pollinator uses lighter slate-blue tiles, and
+  Mountain Garden uses lighter teal tiles. Its **Custom Theme** button adds custom forecast
+  backgrounds through the same creator. **Caelus Metric Tile Style** selects
+  **Theme**, **Chrome**, **Brass**, or **Brass & Mahogany** for the Weather Station
+  tiles below Caelus’s map and Lunar Calendar. These tiles show every known
+  metric for the Current Readings sensor, with the configured Display Metrics
+  first. They include units, trend arrows, and 24-hour Min/Avg/Max values with
+  extrema timestamps, matching the Sensorius Dashboard. Graphs use the same
+  metric color bands and average line; Wind Direction graphs use the same
+  wind rose and show wind-speed values and statistics. Initial views follow
+  the sensor’s display styles; selecting a tile cycles **Gauge → 24Hr Graph →
+  6Hr Graph → Gauge**. Their finish is independent of that sensor’s metric tile
+  style on the Sensorius Dashboard.
+  Tile widths, canvas dimensions, padding, and spacing follow the Sensorius
+  dashboard’s **Gauge Size** setting. Tiles wrap to fit the available width.
+  Select the pill-shaped station heading to expand from one visible row to all
+  metrics, or collapse back to one row. The row adjusts to the window width,
+  and the selection is remembered for that station in the current browser tab.
 - **Biodynamic Calendar Theme**: independently selects the full-screen calendar
   background and matching card palette. The five themes are **Garden Tools**,
-  **Spring**, **Summer**, **Autumn**, and **Winter**. **Garden Tools** is the
-  default. **Automatic seasonal rotation** is optional and changes
+  **Spring**, **Summer**, **Autumn**, and **Winter**. Summer tiles use pale yellow,
+  and Autumn tiles use pale orange. **Garden Tools** is the default. **Automatic seasonal rotation** is optional and changes
   at the start of March, June, September, and December in the calendar timezone.
   Automatic rotation applies only to these built-in seasonal themes. Custom BD
   themes are static selections and are never substituted by seasonal rotation.
+  The theme viewers in Caelus and the Biodynamic Calendar also offer **Save**
+  to keep the previewed selection, including calendar **Automatic rotation**.
+  Returning or pressing Escape without saving restores the previous theme.
 - **Custom Theme images**: accept WebP, JPEG, or PNG files up to 5 MB each.
   A 16:9 image at 1920 × 1080 is recommended; the minimum accepted size is
   320 × 180. Sensorius center-crops, removes image metadata, converts uploads
@@ -973,7 +992,10 @@ family, optionally enter its USB serial, select the retrieval interval, and choo
 **Save Console**. Supported profiles include 01536-RX/06056, 01025, 01035,
 01036/01092/06006, 01525 and 02032/02033/01093/06037. Select mode 4 on consoles
 with a USB mode setting; the 01536 family uses it automatically. Connect the console
-to the Sensorius host and close other applications reading its USB interface.
+to the Sensorius host and close other applications reading its USB interface,
+including WeeWX or PC Connect. Recheck a manually selected USB mode after power
+loss; Sensorius does not change the console mode. Leave the USB serial number
+blank for one console, or specify it when multiple consoles are attached.
 
 USB requests follow the configured retrieval interval. Alternating weather fields
 may need two retrievals to arrive; the same interval also controls saved snapshots.
@@ -984,6 +1006,27 @@ characters of their UUID; their full IDs remain in settings and history. For exa
 `ACURITE-B6A529FFB882C4F` displays as `ACURITE-882C4F`. **Disable** retains its settings and history. Use the current
 platform installer for USB dependencies and permissions. See [AcuRite USB](acurite_usb.md)
 for setup, supported fields and physical-validation limitations.
+
+#### Davis Vue USB Console
+
+Open **General Settings > Add Device > Weather Station > Davis Vue USB Console**.
+Use a Vantage Vue console with a compatible USB serial datalogger and one Vue
+ISS transmitter. Enter the USB datalogger’s serial port, match the console baud
+rate, set the retrieval interval, and select **Enable** and **Save Console**.
+Leave the console’s setup screens and close WeatherLink, WeeWX, and other serial
+readers. Outdoor readings appear after reception progress is verified.
+
+#### Oregon Scientific USB Console
+
+Open **General Settings > Add Device > Weather Station > Oregon Scientific USB
+Console**. Connect a supported WMR100-family console and close WeeWX or other
+USB readers. Select the console model, set the snapshot interval, and select
+**Enable** and **Save Console**. Leave the USB serial number blank for one
+console, or specify it when several are attached.
+
+USB reports arrive continuously; the snapshot interval controls saved weather
+snapshots. Sensorius uses native HID on macOS and Windows and libusb on Linux
+and Raspberry Pi. WMR200, WMR300, and other Oregon protocols are not supported.
 
 ### Update Device Pane
 

@@ -10,6 +10,8 @@ import asyncio
 from collections import Counter
 import math
 import re
+import sqlite3
+import time
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
@@ -23,13 +25,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import __version__ as SAI_APP_VERSION
-from .saiHtml import canonicalize_metric_name, extend_gauge_config_for_metrics, get_gauge_config
+from .saiHtml import GAUGE_SIZES, canonicalize_metric_name, extend_gauge_config_for_metrics, get_gauge_config
 from .saiDisplayUnits import (
     apply_display_units_to_gauge_config,
     convert_display_value,
     display_conversion,
     normalize_display_unit_system,
 )
+from .saiMetricNames import normalize_metric_keys, normalize_metric_stats
+from .saiStats import saiStats
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiWeatherThermal import calculate_feels_like, calculate_wind_chill
 from .saiWeatherAstronomy import astronomy_context
@@ -126,14 +130,17 @@ def build_display_metrics(
     values: dict[str, Any],
     configured_metrics: list[str],
     unit_system: object = "Imperial",
+    *,
+    include_config: bool = False,
+    limit: int | None = 6,
 ) -> list[dict[str, Any]]:
-    """Return the selected sensor's Display Metrics in their configured order."""
+    """Return ordered Display Metrics, optionally with tile gauge configuration."""
     indexed = {_metric_key(name): (str(name), value) for name, value in (values or {}).items()}
     gauge_config = get_gauge_config()
     extend_gauge_config_for_metrics(gauge_config, configured_metrics)
     gauge_config = apply_display_units_to_gauge_config(gauge_config, unit_system)
     display_metrics: list[dict[str, Any]] = []
-    for configured_name in configured_metrics[:6]:
+    for configured_name in configured_metrics[:limit]:
         name = str(configured_name or "").strip()
         if not name:
             continue
@@ -155,6 +162,8 @@ def build_display_metrics(
                 "unit": str(metric_config.get("unit") or ""),
             }
         )
+        if include_config:
+            display_metrics[-1].update(metric=name, config=metric_config)
     return display_metrics
 
 
@@ -534,10 +543,12 @@ def _windy_url(latitude: float, longitude: float, unit_system: object = "Imperia
 class WeatherForecastAppService:
     """Bridge Sensorius settings, readings, forecasts, and astronomy to the weather UI."""
 
-    def __init__(self, *, settings: Any, data_logger: Any, sensor_settings_manager: Any | None = None) -> None:
+    def __init__(self, *, settings: Any, data_logger: Any, sensor_settings_manager: Any | None = None, statter: Any | None = None) -> None:
         self.settings = settings
         self.data_logger = data_logger
         self.sensor_settings_manager = sensor_settings_manager or SensorSettingsManager("sensor_settings")
+        self.statter = statter or saiStats(str(getattr(data_logger, "db_path", "sensorius_data.db")))
+        self._metric_inventory: tuple[float, str, list[str]] | None = None
         self._warm_task: asyncio.Task[dict[str, Any]] | None = None
         self.theme_manager = ThemeManager()
 
@@ -586,6 +597,9 @@ class WeatherForecastAppService:
             "theme_style": self.theme_manager.style_attribute(
                 self.theme_manager.style_values("caelus", theme)
             ),
+            "metric_tile_style": SensorSettingsManager.normalize_metric_tile_style(
+                self.settings.get_setting("WeatherForecast", "METRIC_TILE_STYLE", "Theme")
+            ),
             "sensor_id": str(self.settings.get_setting("WeatherForecast", "CURRENT_SENSOR_ID", "") or "").strip(),
         }
 
@@ -624,11 +638,12 @@ class WeatherForecastAppService:
         return payload
 
     def current_readings(self) -> dict[str, Any]:
-        """Return selected readings, outdoor thermal estimates, and battery health."""
+        """Return selected readings, metric tile configuration, thermal estimates, and health."""
         sensor_id = self.integration_settings()["sensor_id"]
         if not sensor_id:
             payload = normalize_current_weather_readings("", {}, "")
             payload["display_metrics"] = []
+            payload["station_metrics"] = []
             payload["location"] = ""
             payload["refresh_interval_sec"] = 60
             return payload
@@ -646,10 +661,23 @@ class WeatherForecastAppService:
         except Exception:
             sensor_location = ""
         payload["display_metrics"] = build_display_metrics(
-            values,
-            configured_metrics,
-            self.settings.get_setting("Display", "unit_system", "Imperial"),
+            values, configured_metrics, self.settings.get_setting("Display", "unit_system", "Imperial")
         )
+        payload["station_metrics"], payload["statistics_available"] = self.station_metrics(
+            sensor_id, values, configured_metrics
+        )
+        payload["metric_tile_style"] = self.integration_settings()["metric_tile_style"]
+        gauge_size = str(self.settings.get_setting("Display", "gauge_size", "Small") or "Small")
+        payload["metric_layout"] = GAUGE_SIZES.get(gauge_size, GAUGE_SIZES["Small"])
+        payload["pressure_altitude"] = self.settings.get_setting("Astral", "ALTITUDE", "")
+        payload["pressure_context"] = {"weewx": sensor_id.lower().startswith("weewx")}
+        try:
+            payload["pressure_context"].update(
+                device=self.sensor_settings_manager.get_setting(sensor_id, "Sensor.DEVICE", ""),
+                altitude=self.sensor_settings_manager.get_setting(sensor_id, "Calibration.ALTITUDE", ""),
+            )
+        except (FileNotFoundError, KeyError):
+            pass
         payload["is_ecowitt"] = sensor_id.startswith("ecowitt-")
         payload["is_acurite"] = sensor_id.startswith("acurite-")
         payload["is_usb_weather"] = sensor_id.startswith(("davis-", "oregon-"))
@@ -675,6 +703,60 @@ class WeatherForecastAppService:
         payload["location"] = sensor_location
         payload["refresh_interval_sec"] = self.current_readings_refresh_interval(sensor_id)
         return payload
+
+    def station_metrics(self, sensor_id: str, values: dict, configured_metrics: list[str]) -> tuple[list[dict], bool]:
+        """Return every known station metric with dashboard values, styles, and 24h statistics."""
+        now = time.monotonic()
+        cached = self._metric_inventory
+        if cached and cached[1] == sensor_id and cached[0] > now:
+            stored = cached[2]
+        else:
+            getter = getattr(self.data_logger, "get_available_metrics", None)
+            stored = list(getter(sensor_id) or []) if callable(getter) else []
+            self._metric_inventory = (now + 60, sensor_id, stored)
+        config = get_gauge_config()
+        known = list(dict.fromkeys(stored + list(values)))
+        extend_gauge_config_for_metrics(config, configured_metrics + known)
+        known_canonical = {canonicalize_metric_name(name, config) for name in known}
+        ordered = list(dict.fromkeys(
+            [canonicalize_metric_name(name, config) for name in configured_metrics]
+            + [name for name in config if name in known_canonical]
+        ))
+        ordered = [name for name in ordered if name in config]
+        normalized_values = normalize_metric_keys(values, ordered)
+        unit_system = self.settings.get_setting("Display", "unit_system", "Imperial")
+        tiles = build_display_metrics(normalized_values, ordered, unit_system, include_config=True, limit=None)
+        display_config = apply_display_units_to_gauge_config(config, unit_system)
+        try:
+            stats = normalize_metric_stats(self.statter.get_24hr_stats(sensor_id) or {}, ordered)
+            stats_available = True
+        except (sqlite3.Error, OSError):
+            stats = {}
+            stats_available = False
+        style_getter = getattr(self.sensor_settings_manager, "get_display_styles", None)
+        styles = style_getter(sensor_id, default_style="Gauge") if callable(style_getter) else []
+        default_style = self.settings.get_setting("Display", "display_style", "Gauge") or "Gauge"
+        for index, tile in enumerate(tiles):
+            metric = tile["metric"]
+            metric_config = tile["config"]
+            tile["gauge_value"] = tile["value"]
+            value_metric = str(metric_config.get("value_metric") or metric)
+            value_config = display_config.get(value_metric) or metric_config
+            raw_value = _safe_float(normalized_values.get(value_metric))
+            tile["value"] = convert_display_value(raw_value, value_config) if raw_value is not None else None
+            tile["value_config"] = value_config
+            tile["unit"] = str(value_config.get("unit") or "")
+            stat_metric = str(metric_config.get("stats_metric") or metric)
+            stat = stats.get(stat_metric) or {}
+            stat_config = display_config.get(stat_metric) or metric_config
+            tile["statistics"] = {
+                key: convert_display_value(stat[key], stat_config) if _safe_float(stat.get(key)) is not None else None
+                for key in ("min", "avg", "max")
+            }
+            tile["statistics"].update({key: stat.get(key) for key in ("min_ts", "max_ts", "trend")})
+            tile["statistics_config"] = stat_config
+            tile["display_style"] = styles[index] if index < len(styles) else default_style
+        return tiles, stats_available
 
     def current_readings_refresh_interval(self, sensor_id: str) -> int:
         """Return the selected sensor's configured collection cadence."""
@@ -724,12 +806,14 @@ def register_weather_forecast_app_routes(
     settings: Any,
     data_logger: Any,
     sensor_settings_manager: Any | None = None,
+    statter: Any | None = None,
 ) -> WeatherForecastAppService:
     """Register the full-screen weather application and namespaced APIs."""
     service = WeatherForecastAppService(
         settings=settings,
         data_logger=data_logger,
         sensor_settings_manager=sensor_settings_manager,
+        statter=statter,
     )
     service.theme_manager = getattr(app.state, "theme_manager", service.theme_manager)
     app.state.weather_forecast_app_service = service

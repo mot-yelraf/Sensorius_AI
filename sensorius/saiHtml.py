@@ -33,6 +33,26 @@ APP_NAME_SHORT = f"{APP_TITLE} AI"
 APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
 
 
+GAUGE_SIZES = {
+    "Small": {
+        "canvas_width": 260,
+        "canvas_height": 205,
+        "container_width": "260px",
+        "font_rem": "1.1rem",
+        "font_px": "10px",
+        "stats_font": "0.85rem",
+    },
+    "Large": {
+        "canvas_width": 500,
+        "canvas_height": 415,
+        "container_width": "500px",
+        "font_rem": "1.7rem",
+        "font_px": "17px",
+        "stats_font": "1.7rem",
+    }
+}
+
+
 def dashboard_sensor_label(sensor_id: str) -> str:
     """Shorten weather station UUIDs for display without changing canonical IDs."""
     label = str(sensor_id or "").upper()
@@ -1200,25 +1220,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             pass
 
 
-    GAUGE_SIZES = {
-        "Small": {
-            "canvas_width": 260,
-            "canvas_height": 205,
-            "container_width": "260px",
-            "font_rem": "1.1rem",
-            "font_px": "10px",
-            "stats_font": "0.85rem",
-        },
-        "Large": {
-            "canvas_width": 500,
-            "canvas_height": 415,
-            "container_width": "500px",
-            "font_rem": "1.7rem",
-            "font_px": "17px",
-            "stats_font": "1.7rem",
-        }
-    }
-
     layout = GAUGE_SIZES.get(gauge_size, GAUGE_SIZES["Small"])
     
     # --- Resolve display_style: "Gauge" or "Graph6hr" or "Graph24hr" from system settings if not provided ---
@@ -1258,6 +1259,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield from render_graph_modal(switch_installed=switch_installed, gauge_config=gauge_config)
     # global assets for templates
     yield f"<link rel='stylesheet' href='/ui_static/css/app.css?v={APP_VERSION}'>"
+    yield f"<link rel='stylesheet' href='/ui_static/css/metric_tile_finishes.css?v={APP_VERSION}'>"
     yield f"<link rel='stylesheet' href='/ui_static/css/mobile_settings.css?v={APP_VERSION}'>"
     yield f"<script src='/ui_static/js/mobile_settings.js?v={APP_VERSION}'></script>"
     yield f"<script src='/ui_static/js/dashboard_order.js?v={APP_VERSION}' defer></script>"
@@ -2232,6 +2234,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      <button type='button' data-dashboard-preview-theme='flower'>Flower</button>"
     yield "      <button type='button' data-dashboard-preview-theme='fruit'>Fruit</button>"
     yield "    </div>"
+    yield "    <button type='button' class='dashboard-theme-return' id='saveDashboardThemeBtn'>Save</button>"
+    yield "    <span id='dashboardThemeSaveStatus' role='status' hidden></span>"
     yield "    <button type='button' class='dashboard-theme-return' id='closeDashboardThemeBtn'>Return to Dashboard</button>"
     yield "  </div>"
     yield "</section>"

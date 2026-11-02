@@ -77,7 +77,35 @@
     });
   }
 
+  async function saveCaelusThemeSelection() {
+    const button = document.getElementById('saveCaelusThemeBtn');
+    const status = document.getElementById('caelusThemeSaveStatus');
+    const theme = document.querySelector('[data-caelus-preview-theme].is-active')?.dataset.caelusPreviewTheme;
+    if (!button || !theme || button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Saving…';
+    status.hidden = true;
+    try {
+      const response = await fetch('/api/themes/selection', {
+        method: 'POST',
+        body: new URLSearchParams({section: 'caelus', theme})
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || 'Could not save the theme. Please try again.');
+      savedCaelusTheme = theme;
+      applyCaelusPreviewTheme(theme);
+      closeCaelusThemeView();
+    } catch (error) {
+      status.textContent = error.message || 'Could not save the theme. Please try again.';
+      status.hidden = false;
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Save';
+    }
+  }
+
   function openCaelusThemeView() {
+    document.getElementById('caelusThemeSaveStatus').hidden = true;
     if (!caelusThemeView || document.body.classList.contains("caelus-theme-preview-mode")) return;
     caelusThemeReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     savedCaelusTheme = Array.from(document.body.classList)
@@ -119,6 +147,7 @@
   caelusThemeButtons.forEach((button) => {
     button.addEventListener("click", () => applyCaelusPreviewTheme(button.dataset.caelusPreviewTheme || "pollinator"));
   });
+  document.getElementById('saveCaelusThemeBtn')?.addEventListener('click', saveCaelusThemeSelection);
   caelusThemeCloseButton?.addEventListener("click", closeCaelusThemeView);
   caelusThemeView?.addEventListener("click", (event) => {
     if (event.target === caelusThemeView) closeCaelusThemeView();
@@ -151,6 +180,7 @@
   }
 
   function renderCurrentReadings(payload) {
+    window.dispatchEvent(new CustomEvent("caelus-readings", {detail: payload}));
     const panel = document.querySelector("[data-current-readings]");
     if (!panel) return;
     const metrics = Array.isArray(payload.display_metrics) ? payload.display_metrics : [];

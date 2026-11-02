@@ -3586,6 +3586,40 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "palettes": theme_manager.palettes(),
         })
 
+    @router.post("/api/themes/selection", response_class=JSONResponse)
+    async def save_theme_selection(request: Request):
+        """Persist one validated theme without changing other display settings."""
+        form = await request.form()
+        section = str(form.get("section", ""))
+        selection = str(form.get("theme", ""))
+        if section == "sensorius" and selection == "leaf-crop":
+            selection = "leaf_crop"
+        targets = {
+            "sensorius": ("Display", "background_theme", DASHBOARD_BACKGROUND_THEMES),
+            "biodynamic": ("Display", "biodynamic_calendar_theme", BIODYNAMIC_CALENDAR_THEMES),
+            "caelus": ("WeatherForecast", "THEME", WEATHER_THEMES),
+        }
+        if section not in targets:
+            return JSONResponse({"ok": False, "error": "Theme section is not supported."}, status_code=400)
+        settings_section, key, supported = targets[section]
+        if selection not in supported and not await asyncio.to_thread(theme_manager.resolve, section, selection):
+            return JSONResponse({"ok": False, "error": "Theme is not supported."}, status_code=400)
+
+        def persist_selection():
+            active_settings = saiSettings(make_startup_backup=False, apply_live=False)
+            active_settings.replace_setting(settings_section, key, selection)
+            reload_section = getattr(settings, "get_section", None)
+            if callable(reload_section):
+                reload_section(settings_section, reload_if_changed=True)
+
+        try:
+            await asyncio.to_thread(persist_selection)
+        except Exception as exc:
+            printDM(f"Could not save theme selection: {exc}", location=MODULE)
+            return JSONResponse({"ok": False, "error": "Could not save the theme. Please try again."}, status_code=500)
+        _invalidate_dashboard_caches()
+        return JSONResponse({"ok": True, "theme": selection})
+
     @router.post("/api/themes", response_class=JSONResponse)
     async def create_custom_theme(request: Request):
         """Create a custom theme collection from one to five uploaded images."""
@@ -3842,6 +3876,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             biodynamic_calendar_theme=biodynamic_calendar_theme,
             weather_forecast_provider=weather_forecast_provider,
             weather_forecast_theme=weather_forecast_theme,
+            weather_forecast_metric_tile_style=SensorSettingsManager.normalize_metric_tile_style(
+                settings.get_setting("WeatherForecast", "METRIC_TILE_STYLE", "Theme")
+            ),
             custom_themes={
                 "sensorius": theme_manager.list_themes("sensorius"),
                 "caelus": theme_manager.list_themes("caelus"),
@@ -4577,6 +4614,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         #settings.replace_setting("Network", "HOSTNAME", form.get("hostname", ""))
 
         astral_form_present = any(key in form for key in ("astral_lat", "astral_lon", "astral_altitude"))
+        weather_forecast_metric_tile_style = str(form.get("weather_forecast_metric_tile_style", "Theme"))
+        if "weather_forecast_metric_tile_style" in form and weather_forecast_metric_tile_style not in METRIC_TILE_STYLES:
+            return _modal_error_response(request, "Caelus metric tile style is not supported.", status_code=400)
         weather_form_present = any(
             key in form
             for key in ("weather_forecast_provider", "weather_forecast_theme", "weather_forecast_sensor_id")
@@ -4864,6 +4904,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
         if "weather_forecast_theme" in form:
             settings.replace_setting("WeatherForecast", "THEME", weather_forecast_theme)
+        if "weather_forecast_metric_tile_style" in form:
+            settings.replace_setting("WeatherForecast", "METRIC_TILE_STYLE", weather_forecast_metric_tile_style)
         if "weather_forecast_sensor_id" in form:
             settings.replace_setting("WeatherForecast", "CURRENT_SENSOR_ID", weather_forecast_sensor_id)
         if notification_rules_form_present:
@@ -6061,6 +6103,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         app=app,
         settings=settings,
         data_logger=data_logger,
+        statter=services.statter,
         sensor_settings_manager=SensorSettingsManager("sensor_settings"),
     )
     device_helpers = register_device_routes(

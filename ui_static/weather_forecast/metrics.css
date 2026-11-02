@@ -1,0 +1,31 @@
+.station-metrics { margin-top: 1.4rem; }
+.station-metrics-hint { color: var(--muted); font-size: .8rem; text-align: center; }
+.station-metrics-heading { margin: 10px auto 8px; text-align: center; }
+.station-metrics-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .55rem; max-width: calc(100% - 10px); padding: .4rem .75rem; border: 1px solid var(--line); border-radius: 999px; background: var(--glass); color: var(--ink); font: inherit; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 1.1rem; font-weight: 750; cursor: pointer; }
+.station-metrics-toggle:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; }
+.station-metrics-toggle:disabled { cursor: default; }
+.station-metrics-toggle:disabled .station-metrics-collapse-icon { visibility: hidden; }
+.station-metrics-collapse-icon { display: inline-block; flex: 0 0 auto; font-size: .85rem; transition: transform 140ms ease; }
+.station-metrics-toggle[aria-expanded="true"] .station-metrics-collapse-icon { transform: rotate(90deg); }
+.station-metric-grid { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 10px; width: calc(100% - 10px); margin: 0 5px 5px; }
+.station-metrics .metric-container { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; position: relative; box-sizing: border-box; flex: 0 1 auto; width: var(--container-width, 260px); max-width: 100%; min-width: 0; padding: .5rem; margin-bottom: 1rem; border: 1px solid var(--line); border-radius: 12px; background: var(--glass); color: var(--ink); cursor: pointer; }
+.station-metrics .metric-container:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 3px; }
+.station-metrics .metric-title { margin-bottom: .3rem; text-align: center; font-size: .9rem; font-weight: 750; }
+.station-metrics .gauge-view, .station-metrics .graph-view { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: var(--canvas-width, 260) / var(--canvas-height, 205); margin: 10px 0 0; border-radius: .6rem; background: rgba(246, 251, 247, .94); }
+.station-metrics canvas { position: relative; display: block; box-sizing: border-box; max-width: 100%; width: calc(var(--canvas-width, 260) * 1px); height: auto; }
+.station-metrics .graph-view canvas { width: 100%; height: 100%; }
+.station-metrics .gauge-view canvas { z-index: 1; }
+.station-metrics .metric-current-value { display: flex; align-items: center; justify-content: center; gap: .45rem; text-align: center; font-size: 1.75rem; font-weight: 800; }
+.station-metrics .metric-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; gap: .3rem; margin-top: 6px; margin-bottom: 1rem; text-align: center; font-size: var(--stats-font, .85rem); }
+.station-metrics .metric-stats div { min-width: 0; }
+.station-metrics .metric-stats :is(span, strong, small) { display: block; font-weight: 400; }
+.station-metrics .metric-stats div:not(:nth-child(2)) strong { font-size: .833em; }
+.station-metrics .metric-stats small { white-space: pre-line; overflow-wrap: anywhere; font-size: .833em; }
+.station-metrics .metric-trend { display: inline-block; margin-left: .4rem; font-size: 1.1rem; font-weight: 400; }
+.station-metrics .metric-status { margin: .4rem 0 0; text-align: center; font-size: .75rem; }
+.station-metrics .metric-status:empty { display: none; }
+.station-metrics .metric-container[hidden] { display: none; }
+.station-metrics .graph-view[hidden], .station-metrics .gauge-view[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .station-metrics * { animation: none !important; }
+}

@@ -1647,7 +1647,36 @@ function applyCalendarPreviewTheme(preference) {
   });
 }
 
+async function saveCalendarThemeSelection() {
+  const button = document.getElementById('saveCalendarThemeBtn');
+  const status = document.getElementById('calendarThemeSaveStatus');
+  const theme = document.querySelector('[data-calendar-preview-theme].is-active')?.dataset.calendarPreviewTheme;
+  if (!button || !theme || button.disabled) return;
+  button.disabled = true;
+  button.textContent = 'Saving…';
+  status.hidden = true;
+  try {
+    const response = await fetch('/api/themes/selection', {
+      method: 'POST',
+      body: new URLSearchParams({section: 'biodynamic', theme})
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || 'Could not save the theme. Please try again.');
+    document.body.dataset.themePreference = theme;
+    applyCalendarPreviewTheme(theme);
+    savedCalendarResolvedTheme = Array.from(document.body.classList).find((name) => name.startsWith('biodynamic-theme-'))?.slice(17) || 'spring';
+    closeCalendarThemeView();
+  } catch (error) {
+    status.textContent = error.message || 'Could not save the theme. Please try again.';
+    status.hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save';
+  }
+}
+
 function openCalendarThemeView() {
+  document.getElementById('calendarThemeSaveStatus').hidden = true;
   if (!calendarThemeView || document.body.classList.contains("calendar-theme-preview-mode")) return;
   calendarThemeReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   savedCalendarResolvedTheme = Array.from(document.body.classList)
@@ -1690,6 +1719,7 @@ document.querySelectorAll("[data-open-calendar-theme]").forEach((button) => {
 calendarThemeButtons.forEach((button) => {
   button.addEventListener("click", () => applyCalendarPreviewTheme(button.dataset.calendarPreviewTheme || "auto"));
 });
+document.getElementById('saveCalendarThemeBtn')?.addEventListener('click', saveCalendarThemeSelection);
 calendarThemeCloseButton?.addEventListener("click", closeCalendarThemeView);
 calendarThemeView?.addEventListener("click", (event) => {
   if (event.target === calendarThemeView) closeCalendarThemeView();
