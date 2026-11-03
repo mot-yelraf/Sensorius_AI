@@ -2,7 +2,7 @@
 
 **Environmental Sensing + Automation Hub**
 
-Sensorius is a sensor, relay-switch automation hub with a intuitive, performant, customizable web UI, extensive user-defined Automation Rules for condition+action automations, WiFi Sensor/Switch monitoring via MQTT, support for a variety of weather sensors/stations, as well as optional Home Assistant and farmOS integrations.
+Sensorius is a sensor, relay-switch automation hub with a intuitive, performant, customizable web UI, extensive user-defined Automation Rules for creating condition(s)+action(s) automations, WiFi Sensor/Switch monitoring via MQTT, support for a variety of weather sensors/stations, as well as optional Home Assistant and farmOS integrations.
 
 The application's focus is on greenhouse (garden, farm) monitor and control, but Sensorius can be used to monitor and control other environments as well. When using Raspberry Pi's it can auto-detects directly-connected sensors, relay-switch(es) and on all supported platforms it automatically discovers Nodus WiFi/MQTT devices, and turns those data into live dashboards, automation controls, historical data; the application also includes integrated weather forecast and biodynamic calendar.
 
@@ -20,11 +20,13 @@ For illustrated setup and operating instructions, see the
 - Provides live dashboards, historical graphing, and location-based views
 - Shows Astral-based sun position and moon phase cards in the dashboard when location/timezone are available
 - Supports manual and automated switch control
-- Supports calibration workflows for sensors
-- Can publish discovery/state for Home Assistant
+  - Automation Conditions include: sensor metric+operator+threshold+hysteresis, time of day, timer, astral, calendar, severe weather, system status and 'or' conditions
+  - Automation Actions include: relay/switch state set+restoration+delay, (email) notification, and (dashboard) alerts
+- Supports calibration for sensor offsets: temperature, relative humidity, aqi, co2, altitude (automatically set)
+- Can publish discovery/state for Home Assistant to automatically be added to HA dashboard
 - Can export sensor telemetry to farmOS log entries
-- Integrated Caelus weather forecast
-- Integrated Biodynamic Calendar with hints, planting tracking and notes
+- Integrated Caelus weather forecast from Open Meteo, MET Norway or US National Weather Service
+- Integrated Biodynamic Calendar with biodynaminc hints, planting tracking and notes
 
 ## Deployment Modes
 
