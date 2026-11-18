@@ -647,7 +647,10 @@ live DB, it also moves the damaged live files into the same directory with a
 
 When the `sqlite3` command-line tool is available, Sensorius first tries
 SQLite's `.recover` command and validates the recovered database with
-`PRAGMA integrity_check`. If salvage fails, Sensorius rebuilds an empty database
+`PRAGMA integrity_check`. The temporary recovery import disables SQLite defensive
+mode for that CLI connection so older `.recover` output can recreate internal
+tables such as `sqlite_sequence`. Normal runtime connections keep their existing
+settings. If salvage fails, Sensorius rebuilds an empty database
 by default so collection and switch events can resume while the damaged files
 remain available for inspection.
 

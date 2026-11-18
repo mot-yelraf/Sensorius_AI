@@ -224,6 +224,16 @@ Revert behavior:
   false.
 - Runtime ownership needed for `previous_state` is persisted in the switch
   settings runtime block.
+- After recovery, Sensorius evaluates the current conditions. If an On window
+  has ended and its saved previous state was Off, it requests Off even though
+  the window ended while Sensorius was unavailable. Remote restoration ownership
+  is retained until Nodus reports the restored state; command acceptance alone
+  does not complete restoration. Failed or unconfirmed requests are retried by
+  subsequent evaluations through the existing paced MQTT command path.
+- History-based previous-state recovery also saves restoration ownership before
+  sending the command, so retries survive another process restart. If conditions
+  match again before restoration completes, the normal action state applies.
+  This does not replay missed one-time Calendar events or change `do_nothing`.
 - Actions set absolute states. They are not toggle or invert commands.
 - Saving an enabled rule or enabling a disabled rule prepares every
   `previous_state` switch action with the opposite baseline: an On action starts

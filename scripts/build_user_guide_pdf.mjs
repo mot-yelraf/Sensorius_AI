@@ -19,8 +19,8 @@ const hasKeepTogetherPair =
   parsedBody.includes(keepTogetherStart) && parsedBody.includes(keepTogetherEnd);
 const body = hasKeepTogetherPair
   ? parsedBody
-      .replace(keepTogetherStart, '<section class="pdf-keep-together">')
-      .replace(keepTogetherEnd, "</section>")
+      .replaceAll(keepTogetherStart, '<section class="pdf-keep-together">')
+      .replaceAll(keepTogetherEnd, "</section>")
   : parsedBody;
 const baseHref = pathToFileURL(path.join(root, "docs") + path.sep).href;
 const html = `<!doctype html>

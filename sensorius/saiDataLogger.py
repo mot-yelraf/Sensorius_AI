@@ -402,7 +402,7 @@ class saiDataLogger:
 
             with sql_path.open("r", encoding="utf-8", errors="replace") as recover_sql:
                 import_proc = subprocess.run(
-                    [sqlite3_bin, str(recovered_path)],
+                    [sqlite3_bin, "-cmd", ".dbconfig defensive off", str(recovered_path)],
                     stdin=recover_sql,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
