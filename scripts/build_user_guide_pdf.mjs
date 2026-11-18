@@ -17,11 +17,15 @@ const keepTogetherStart = "<!-- pdf-keep-together:start -->";
 const keepTogetherEnd = "<!-- pdf-keep-together:end -->";
 const hasKeepTogetherPair =
   parsedBody.includes(keepTogetherStart) && parsedBody.includes(keepTogetherEnd);
-const body = hasKeepTogetherPair
+const groupedBody = hasKeepTogetherPair
   ? parsedBody
       .replaceAll(keepTogetherStart, '<section class="pdf-keep-together">')
       .replaceAll(keepTogetherEnd, "</section>")
   : parsedBody;
+const body = groupedBody
+  .replace("<!-- pdf-contents:start -->", '<nav class="pdf-contents" aria-label="Table of Contents">')
+  .replace("<!-- pdf-contents:end -->", "</nav>")
+  .replaceAll("<!-- pdf-page-break -->", '<div class="pdf-page-break"></div>');
 const baseHref = pathToFileURL(path.join(root, "docs") + path.sep).href;
 const html = `<!doctype html>
 <html lang="en">
@@ -33,11 +37,12 @@ const html = `<!doctype html>
     @page { size: Letter; margin: 0.65in 0.62in 0.7in; }
     * { box-sizing: border-box; }
     body { color: #17212b; font: 10.2pt/1.42 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; }
-    h1, h2, h3, h4 { color: #143d38; break-after: avoid-page; line-height: 1.2; }
+    h1, h2, h3, h4, h5, h6 { color: #143d38; break-after: avoid-page; line-height: 1.2; }
     h1 { border-bottom: 3px solid #3a8d7d; font-size: 25pt; margin: 0 0 18pt; padding-bottom: 8pt; }
     h2 { border-bottom: 1px solid #aac9c2; font-size: 17pt; margin: 22pt 0 8pt; padding-bottom: 3pt; }
     h3 { font-size: 13pt; margin: 16pt 0 6pt; }
     h4 { font-size: 11pt; margin: 12pt 0 5pt; }
+    h5, h6 { font-size: 10.2pt; margin: 10pt 0 5pt; }
     p, li { orphans: 3; widows: 3; }
     a { color: #176b61; text-decoration: none; }
     code { background: #eef3f2; border-radius: 3px; font: 9pt ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 3px; }
@@ -50,6 +55,11 @@ const html = `<!doctype html>
     blockquote { border-left: 3px solid #7aa99f; color: #40514e; margin-left: 0; padding-left: 10pt; }
     hr { border: 0; border-top: 1px solid #aac9c2; }
     .pdf-keep-together { break-inside: avoid-page; page-break-inside: avoid; }
+    .pdf-contents { font-size: 9.4pt; line-height: 1.25; }
+    .pdf-contents > ul { columns: 2; column-gap: 24pt; }
+    .pdf-contents ul { margin: 0; padding-left: 13pt; }
+    .pdf-contents > ul > li { break-inside: avoid; }
+    .pdf-page-break { break-after: page; }
   </style>
 </head>
 <body>${body}</body>
@@ -61,6 +71,15 @@ try {
   const page = await browser.newPage();
   await page.goto(pathToFileURL(temporaryHtml).href, { waitUntil: "networkidle" });
   await page.evaluate(({ repositoryRoot, repositoryUrl }) => {
+    for (const anchor of document.querySelectorAll("a[id]:empty")) {
+      const parent = anchor.parentElement;
+      const marker = parent.matches("p") && parent.childNodes.length === 1 ? parent : anchor;
+      const heading = marker.nextElementSibling;
+      if (heading?.matches("h2, h3, h4, h5, h6") && !heading.id) {
+        heading.id = anchor.id;
+        marker.remove();
+      }
+    }
     for (const anchor of document.querySelectorAll("a[href]")) {
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#")) continue;
