@@ -2,6 +2,61 @@
   <img src="../ui_static/01-sensorius-overview-v5.png" alt="Sensorius system overview" width="1200">
 </p>
 
+## Table of Contents
+
+<!-- pdf-contents:start -->
+
+- [Dashboard Overview](#dashboard-overview)
+- [General Settings](#general-settings)
+  - [Astral](#astral)
+  - [Display](#display)
+    - [Sensorius Dashboard Order](#sensorius-dashboard-order)
+    - [Sensorius Dashboard Theme](#sensorius-dashboard-theme)
+    - [Caelus Theme](#caelus-theme)
+    - [Biodynamic Calendar Theme](#biodynamic-calendar-theme)
+  - [Network Settings](#network-settings)
+  - [Nodus Wifi Update](#nodus-wifi-update)
+  - [Notifications](#notifications)
+  - [Weather Forecast](#weather-forecast)
+- [Automations](#automations-pane)
+  - [Automation Definition](#automation-definition)
+  - [Your First Useful Setup](#your-first-useful-setup)
+- [Edit Locations](#edit-locations-pane)
+- [Add Device](#add-device-pane)
+  - [Nodus Device](#nodus-device)
+  - [Weather Station](#weather-station)
+    - [Ecowitt Gateway](#ecowitt-gateway)
+    - [AcuRite USB Console](#acurite-usb-console)
+    - [Davis Vue USB Console](#davis-vue-usb-console)
+    - [Oregon Scientific USB Console](#oregon-scientific-usb-console)
+- [Update Device](#update-device-pane)
+- [Halt or Remove Device](#halt-or-remove-device-pane)
+  - [Halt Device(s)](#halt-devices)
+  - [Remove Device(s)](#remove-devices)
+- [Integrations](#integrations-pane)
+  - [FarmOS](#farmos)
+  - [Home Assistant](#home-assistant)
+  - [WeeWX](#weewx)
+- [Advanced](#advanced-pane)
+  - [Database](#database)
+  - [Debug](#debug)
+  - [Start-up](#start-up)
+- [Sensor Settings](#sensor-settings)
+- [Switch Settings](#switch-settings)
+- [Sensorius Graphum](#sensorius-graphum)
+- [Severe Weather (US NWS)](#severe-weather-us-nws)
+- [Caelus Weather Forecast](#caelus-weather-forecast)
+- [Biodynamic Calendar Features](#biodynamic-calendar-features)
+- [Mobile Operations](#mobile-operations)
+- [Good Operating Habits](#good-operating-habits)
+- [Opening Sensorius](#opening-sensorius)
+- [Where Sensorius Gets Its Information](#where-sensorius-gets-its-information)
+- [Troubleshooting](#troubleshooting)
+
+<!-- pdf-contents:end -->
+
+<!-- pdf-page-break -->
+
 # Sensorius User Guide
 
 Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, fully integrated Caelus Weather Forecast, Maria Thun-inspired Biodynamic Calendar, and optional integrations with Home Assistant, WeeWX, and farmOS.
@@ -11,152 +66,8 @@ Sensorius can run as a Raspberry Pi hub with directly connected sensors and rela
 Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches, as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect, Davis Vantage Vue USB datalogger, and Oregon Scientific WMR100-family USB consoles. These devices appear together on the same dashboard.
 
 <!-- pdf-keep-together:start -->
-<a id="your-first-useful-setup"></a>
+<a id="dashboard-overview"></a>
 
-## Your First Useful Setup
-
-Choose one path through this walkthrough:
-
-- **Monitor only**: name a place, confirm a fresh sensor reading, and receive
-  an alert. No switch is required.
-- **Monitor and control**: complete the monitoring steps, then use a sensor
-  reading to operate a fan, pump, or valve.
-
-These steps use the existing settings and [automation editor](#automations-pane).
-The recipe names below are examples you enter as **Automation Name**. Read each
-plain-language preview before setting **Enable** to **Yes**.
-<!-- pdf-keep-together:end -->
-
-### Name Your Location And Confirm A Reading
-
-1. If the sensor is not on the dashboard yet, add it through
-   [General Settings > Add Device](#add-device-pane), using the instructions for
-   your device type.
-2. Open **General Settings > Edit Locations**. Give the sensor a practical
-   location such as **Greenhouse 1** or **West Bed**, then select **Save**.
-   For control, assign the associated switch to the same location. This is the
-   device's location, separate from the community name and Astral coordinates.
-3. Return to the dashboard and select that location in the **Location Tile**.
-   Find the sensor and the metric you plan to use, such as temperature or soil
-   moisture. Check its units and whether its value is plausible.
-4. Open the metric in **Sensorius Graphum** and inspect the latest point's
-   timestamp across a normal reporting interval to confirm that new readings
-   are arriving. For network devices, also open **Sensor Settings > Sensor
-   Info** and check **Last packet received** and **Data packets received**,
-   where reported. A steady value can be fresh; an old value still visible on
-   a tile does not by itself prove that the device is reporting.
-
-### Monitor Only: Test Your First Alert
-
-1. Open **General Settings > Automations > New**. Name the automation
-   **Greenhouse alert test**, and leave **Enable** at **No** while editing.
-2. Add a **Sensor** condition. Pick your sensor and its temperature metric,
-   choose `>`, and set **Hysteresis** to `0` for this temporary test. Set
-   **Threshold** just below the fresh reading. For example, if it reads
-   22°C, enter 21°C; if it reads 72°F, enter 71°F.
-3. Choose **Alert** under **Actors**. This displays a dashboard notification.
-   For email, configure **General Settings > Notifications**, use **Send Test
-   Email** to confirm delivery, then choose **Notify** and enter **To** instead.
-4. Review the rule in plain language: **“When Greenhouse 1's selected
-   temperature is above 21°C, show a dashboard alert. Do not operate a switch.”**
-   Substitute your own sensor, units, threshold, and delivery method.
-5. Select **Save** with **Enable: No** to keep a disabled draft. When ready,
-   set **Enable: Yes** and select **Save**. Keep the dashboard open for an
-   **Alert**, and wait for the next automation evaluation. Confirm that the
-   message identifies the expected location, metric, and reading.
-6. Disable and save the test rule. Remove it, or replace the test threshold
-   with the threshold you actually want to monitor before enabling it again.
-
-For a useful ongoing alert, follow **Warn about frost** below. A dashboard
-**Alert** requires an open dashboard to see the notification; **Notify** sends
-email through the configured notification service.
-
-### Monitor And Control: Choose A Recipe
-
-First complete the location, fresh-reading, and alert checks above. With the
-automation disabled, test the intended switch channel manually and confirm
-that it operates the expected equipment. End the test with the fan, pump, or
-valve **Off**. For a first trial, use a harmless test load.
-
-For each recipe, open **General Settings > Automations > New**, leave
-**Enable: No**, and enter the example name. Pick your own sensor, metric,
-switch channel where needed, and thresholds. The numbers below illustrate the
-rule behavior; choose values appropriate to your installation. Temperature
-fields follow your selected Metric/Imperial display units.
-
-#### Ventilate When Hot
-
-1. Add a **Sensor** condition for the greenhouse temperature. Choose operator
-   `>`, **Threshold: 28°C** (82.4°F), and **Hysteresis: 1°C** (1.8°F).
-2. Under **Actors**, select the ventilation fan's switch channel. Set
-   **Set State: On**, **Restore Action: To previous state**, and
-   **Delay Action (secs): 0**.
-3. Preview: **“When Greenhouse 1 temperature rises above 29°C (84.2°F), turn
-   the ventilation fan On. Keep it On until temperature reaches 27°C (80.6°F)
-   or lower, then restore Off.”** Hysteresis puts the turn-on and turn-off
-   points on either side of the threshold.
-4. Save the disabled draft. Check the channel and preview, then enable and
-   save it. Observe the fan's reported state and its switch events as the
-   temperature crosses the two limits.
-
-#### Warn About Frost
-
-This recipe works on either path and needs no switch.
-
-1. Add a **Sensor** condition using the temperature sensor at the place you
-   want to protect, such as **West Bed**. Choose `<`, **Threshold: 2°C**
-   (35.6°F), and **Hysteresis: 0**.
-2. Choose **Alert** for a dashboard warning, or **Notify** and a **To** recipient
-   for email. Add another action if you want both.
-3. Preview: **“When West Bed temperature is below 2°C (35.6°F), warn me.
-   Do not operate a switch.”** A Notify action also sends a **CLEARED** email
-   when the condition stops matching.
-4. Save the disabled draft, review the sensor and delivery choice, then enable
-   and save it. Use the temporary-threshold procedure above to verify delivery
-   before relying on the real frost threshold.
-
-<!-- pdf-keep-together:start -->
-#### Water When Soil Is Dry
-
-1. Select a calibrated soil-moisture metric. Check its scale and direction:
-   this example assumes a percentage where **lower means drier**. Use the
-   metric's native units and an appropriate comparison for other sensors.
-2. Add a **Sensor** condition with `<`, **Threshold: 30**, and
-   **Hysteresis: 5** percentage points.
-3. Add a **Time of Day** condition in the same group, for example **Start
-   Time: 06:00**, **Stop Time: 06:10**, with your chosen days. Both conditions
-   must match. This confines watering to that window while Sensorius is
-   controlling the switch.
-4. Under **Actors**, select the irrigation pump or valve channel. Choose
-   **Set State: On**, **Restore Action: To previous state**, and
-   **Delay Action (secs): 0**.
-5. Preview: **“On the selected days between 06:00 and 06:10, turn West Bed
-   irrigation On when soil moisture falls below 25%. Restore Off when moisture
-   reaches 35% or when the watering window ends, whichever happens first.”**
-6. Save the disabled draft. Verify the sensor, channel, scale, and preview,
-   then enable and save it. Observe a short watering trial and confirm the
-   reported Off state and switch event at the end.
-<!-- pdf-keep-together:end -->
-
-### Before You Leave A Control Rule Enabled
-
-For the On recipes above, **To previous state** provides the return to Off.
-Saving an enabled rule, or enabling a disabled rule with this restore setting,
-first prepares the switch at the opposite state: Off for an On action. That
-preparation operates the switch and must be confirmed by the device. If the
-conditions already match, the action can then turn it On immediately.
-An enabled automation owns its switch channel; disable it before manual tests.
-
-These are Sensorius-controlled rules, including when the switch is on Nodus.
-Sensorius must be running and able to communicate to apply changes. After
-recovery, it checks the current conditions: if the On window has ended, the
-saved Off restoration remains pending until Nodus reports Off. It does not
-need to observe the exact end-of-window transition. A time window is not an
-independent Nodus shutdown timer, and missed one-time Calendar events are not
-replayed. **Leave at set state** would deliberately leave the switch On when
-the condition ends, so it does not provide the return to Off in these recipes.
-
-<!-- pdf-keep-together:start -->
 ## Dashboard Overview
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
@@ -440,6 +351,8 @@ Each switch channel also has an auto-off timer. Open the timer control with its 
 
 The Events column shows a compact switch transition graph, using green vertical lines for On events and black vertical lines for Off events, like the switch overlays in the full-screen graph. The plot stays compact, with On/Off color labels beside it and three date/time ticks below it for the start, midpoint, and current time. Each graph starts at **24hr**. Click or tap the graph to cycle **24hr → 6hr → 1hr → 24hr**; each channel keeps its own view while the dashboard remains open. The time axis runs from the selected number of hours ago on the left to Now on the right, and includes every stored transition within that period. The text below the graph always shows the latest recorded state, its date/time, and `manual` or `auto - <rule name>` when recorded, even if that event is outside the selected window. Events without a recorded origin show `origin unavailable`. The color legend appears only in this guide. Hover to see the nearest event's date/time and origin in a tooltip; keyboard users can focus the graph, press Left/Right to inspect event tooltips, and Enter or Space to cycle views. Times use local 12-hour AM/PM display in your browser. A blank graph means no state changes were recorded in that window, not that the switch was Off throughout. If no recorded event is available, the text shows **No recorded state**. A history request failure is shown in the footer tooltip when a previous event is available, or in the footer text otherwise. The graph refreshes persisted history every minute and includes live state updates as commands and device reports arrive. Those same persisted events can be selected as vertical overlays in the full-screen graph.
 
+<a id="general-settings"></a>
+
 ## General Settings
 
 General Settings contains hub-level settings, notifications, system-wide
@@ -469,6 +382,8 @@ The main pane contains six expandable sections. Open one to review or change
 its settings. Each section-level **Save** submits and writes only the controls
 inside that section; values in the other expandable sections are left unchanged.
 
+<a id="astral"></a>
+
 #### Astral
 
 ![Astral section open](<../assets/screenshots/system-settings-astral.png>)
@@ -484,6 +399,8 @@ moon, biodynamic, weather, and location-aware automation calculations:
 - **Save**: writes the Astral location. Changing it causes dependent calendar
   and astronomy information to be recalculated.
 
+<a id="display"></a>
+
 #### Display
 
 ![Display section open with Fruit, Desert Bloom, and Spring themes selected](<../assets/screenshots/system-settings-display.png>)
@@ -494,7 +411,7 @@ Size** is shown only while **Gauge** is selected. Each of the three theme areas
 has its own disclosure marker so its thumbnail choices can be expanded or
 collapsed without moving the section's **Save** button.
 
-**Sensorius Dashboard Order**, above the theme sections, controls sensor and
+<a id="sensorius-dashboard-order"></a>**Sensorius Dashboard Order**, above the theme sections, controls sensor and
 switch ordering independently. Both default to **Location, then device name
 (A–Z)**. Select **Keep existing order** to use saved positions instead, then
 select **Save** to apply the sorting choice.
@@ -533,7 +450,7 @@ cards. Available arrows are blue; unavailable directions are dimmed and disabled
 - **Display Style**: default metric display when a sensor has no saved
   per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
-- **Sensorius Dashboard Theme**: five thumbnails select the **Default** leaf
+- <a id="sensorius-dashboard-theme"></a>**Sensorius Dashboard Theme**: five thumbnails select the **Default** leaf
   pattern or the greenhouse **Root**, **Leaf**, **Flower**, and **Fruit** scenes.
   The greenhouse themes use pale colors for metric and switch cards: beige for
   **Root**, light green for **Leaf**, periwinkle for **Flower**, and peach for
@@ -548,7 +465,7 @@ cards. Available arrows are blue; unavailable directions are dimmed and disabled
   theme section surfaces, selection outline, and Custom Theme action use the
   active dashboard palette; the Display **Save** button retains its standard
   blue action color.
-- **Caelus Theme**: five thumbnails select the default **Pollinator** pattern,
+- <a id="caelus-theme"></a>**Caelus Theme**: five thumbnails select the default **Pollinator** pattern,
   **Mountain Garden**, **Sunny Beach**, **Forest River**, or **Desert Bloom**
   for the full-screen forecast. Pollinator uses lighter slate-blue tiles, and
   Mountain Garden uses lighter teal tiles. Its **Custom Theme** button adds custom forecast
@@ -568,7 +485,7 @@ cards. Available arrows are blue; unavailable directions are dimmed and disabled
   Select the pill-shaped station heading to expand from one visible row to all
   metrics, or collapse back to one row. The row adjusts to the window width,
   and the selection is remembered for that station in the current browser tab.
-- **Biodynamic Calendar Theme**: independently selects the full-screen calendar
+- <a id="biodynamic-calendar-theme"></a>**Biodynamic Calendar Theme**: independently selects the full-screen calendar
   background and matching card palette. The five themes are **Garden Tools**,
   **Spring**, **Summer**, **Autumn**, and **Winter**. Summer tiles use pale yellow,
   and Autumn tiles use pale orange. **Garden Tools** is the default. **Automatic seasonal rotation** is optional and changes
@@ -598,6 +515,8 @@ cards. Available arrows are blue; unavailable directions are dimmed and disabled
 - **Save**: writes the display defaults. Reload the dashboard to see changes
   that are not applied immediately.
 
+<a id="network-settings"></a>
+
 #### Network Settings
 
 ![Network Settings section showing the Community/Location Name field](<../assets/screenshots/system-settings-overview.png>)
@@ -614,6 +533,8 @@ settings:
 - **Community/Location Name**: optional friendly community or locality shown as the large location heading in Caelus, such as `Silver City`. It does not change the Astral coordinates, timezone, or any sensor/switch location. Leaving it blank uses the default Caelus station label.
 - **Circled ×**: closes General Settings and returns to the dashboard.
 - **Save**: writes the values in this section.
+
+<a id="nodus-wifi-update"></a>
 
 #### Nodus Wifi Update
 
@@ -683,6 +604,8 @@ storage, logs, or metadata shadows. The credential-read response and the
 non-retained MQTT command necessarily carry the values in transit; enable MQTT
 TLS and protect access to the Sensorius web UI.
 
+<a id="notifications"></a>
+
 #### Notifications
 
 ![Notifications section open](<../assets/screenshots/system-settings-notifications.png>)
@@ -750,6 +673,8 @@ App Passwords are permitted. Google revokes existing App Passwords when the
 main Google Account password changes; create and save a new App Password if
 email delivery stops afterward. Revoke the Sensorius App Password from the
 Google Account when the hub is retired or no longer uses that account.
+
+<a id="weather-forecast"></a>
 
 #### Weather Forecast
 
@@ -843,6 +768,8 @@ General Settings editor loads all saved rules, sensor and metric choices, and
 the available actor directory. Rules found only at the former path show a
 **Legacy — open and Save** marker; opening and saving one moves that individual
 rule to the new path.
+
+<a id="automation-definition"></a>
 
 #### Automation Definition
 
@@ -967,6 +894,154 @@ threshold.
 
 If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
 
+<!-- pdf-keep-together:start -->
+<a id="your-first-useful-setup"></a>
+
+#### Your First Useful Setup
+
+Choose one path through this walkthrough:
+
+- **Monitor only**: name a place, confirm a fresh sensor reading, and receive
+  an alert. No switch is required.
+- **Monitor and control**: complete the monitoring steps, then use a sensor
+  reading to operate a fan, pump, or valve.
+
+These steps use the existing settings and [automation editor](#automations-pane).
+The recipe names below are examples you enter as **Automation Name**. Read each
+plain-language preview before setting **Enable** to **Yes**.
+<!-- pdf-keep-together:end -->
+
+##### Name Your Location And Confirm A Reading
+
+1. If the sensor is not on the dashboard yet, add it through
+   [General Settings > Add Device](#add-device-pane), using the instructions for
+   your device type.
+2. Open **General Settings > Edit Locations**. Give the sensor a practical
+   location such as **Greenhouse 1** or **West Bed**, then select **Save**.
+   For control, assign the associated switch to the same location. This is the
+   device's location, separate from the community name and Astral coordinates.
+3. Return to the dashboard and select that location in the **Location Tile**.
+   Find the sensor and the metric you plan to use, such as temperature or soil
+   moisture. Check its units and whether its value is plausible.
+4. Open the metric in **Sensorius Graphum** and inspect the latest point's
+   timestamp across a normal reporting interval to confirm that new readings
+   are arriving. For network devices, also open **Sensor Settings > Sensor
+   Info** and check **Last packet received** and **Data packets received**,
+   where reported. A steady value can be fresh; an old value still visible on
+   a tile does not by itself prove that the device is reporting.
+
+##### Monitor Only: Test Your First Alert
+
+1. Open **General Settings > Automations > New**. Name the automation
+   **Greenhouse alert test**, and leave **Enable** at **No** while editing.
+2. Add a **Sensor** condition. Pick your sensor and its temperature metric,
+   choose `>`, and set **Hysteresis** to `0` for this temporary test. Set
+   **Threshold** just below the fresh reading. For example, if it reads
+   22°C, enter 21°C; if it reads 72°F, enter 71°F.
+3. Choose **Alert** under **Actors**. This displays a dashboard notification.
+   For email, configure **General Settings > Notifications**, use **Send Test
+   Email** to confirm delivery, then choose **Notify** and enter **To** instead.
+4. Review the rule in plain language: **“When Greenhouse 1's selected
+   temperature is above 21°C, show a dashboard alert. Do not operate a switch.”**
+   Substitute your own sensor, units, threshold, and delivery method.
+5. Select **Save** with **Enable: No** to keep a disabled draft. When ready,
+   set **Enable: Yes** and select **Save**. Keep the dashboard open for an
+   **Alert**, and wait for the next automation evaluation. Confirm that the
+   message identifies the expected location, metric, and reading.
+6. Disable and save the test rule. Remove it, or replace the test threshold
+   with the threshold you actually want to monitor before enabling it again.
+
+For a useful ongoing alert, follow **Warn about frost** below. A dashboard
+**Alert** requires an open dashboard to see the notification; **Notify** sends
+email through the configured notification service.
+
+##### Monitor And Control: Choose A Recipe
+
+First complete the location, fresh-reading, and alert checks above. With the
+automation disabled, test the intended switch channel manually and confirm
+that it operates the expected equipment. End the test with the fan, pump, or
+valve **Off**. For a first trial, use a harmless test load.
+
+For each recipe, open **General Settings > Automations > New**, leave
+**Enable: No**, and enter the example name. Pick your own sensor, metric,
+switch channel where needed, and thresholds. The numbers below illustrate the
+rule behavior; choose values appropriate to your installation. Temperature
+fields follow your selected Metric/Imperial display units.
+
+###### Ventilate When Hot
+
+1. Add a **Sensor** condition for the greenhouse temperature. Choose operator
+   `>`, **Threshold: 28°C** (82.4°F), and **Hysteresis: 1°C** (1.8°F).
+2. Under **Actors**, select the ventilation fan's switch channel. Set
+   **Set State: On**, **Restore Action: To previous state**, and
+   **Delay Action (secs): 0**.
+3. Preview: **“When Greenhouse 1 temperature rises above 29°C (84.2°F), turn
+   the ventilation fan On. Keep it On until temperature reaches 27°C (80.6°F)
+   or lower, then restore Off.”** Hysteresis puts the turn-on and turn-off
+   points on either side of the threshold.
+4. Save the disabled draft. Check the channel and preview, then enable and
+   save it. Observe the fan's reported state and its switch events as the
+   temperature crosses the two limits.
+
+###### Warn About Frost
+
+This recipe works on either path and needs no switch.
+
+1. Add a **Sensor** condition using the temperature sensor at the place you
+   want to protect, such as **West Bed**. Choose `<`, **Threshold: 2°C**
+   (35.6°F), and **Hysteresis: 0**.
+2. Choose **Alert** for a dashboard warning, or **Notify** and a **To** recipient
+   for email. Add another action if you want both.
+3. Preview: **“When West Bed temperature is below 2°C (35.6°F), warn me.
+   Do not operate a switch.”** A Notify action also sends a **CLEARED** email
+   when the condition stops matching.
+4. Save the disabled draft, review the sensor and delivery choice, then enable
+   and save it. Use the temporary-threshold procedure above to verify delivery
+   before relying on the real frost threshold.
+
+<!-- pdf-keep-together:start -->
+###### Water When Soil Is Dry
+
+1. Select a calibrated soil-moisture metric. Check its scale and direction:
+   this example assumes a percentage where **lower means drier**. Use the
+   metric's native units and an appropriate comparison for other sensors.
+2. Add a **Sensor** condition with `<`, **Threshold: 30**, and
+   **Hysteresis: 5** percentage points.
+3. Add a **Time of Day** condition in the same group, for example **Start
+   Time: 06:00**, **Stop Time: 06:10**, with your chosen days. Both conditions
+   must match. This confines watering to that window while Sensorius is
+   controlling the switch.
+4. Under **Actors**, select the irrigation pump or valve channel. Choose
+   **Set State: On**, **Restore Action: To previous state**, and
+   **Delay Action (secs): 0**.
+5. Preview: **“On the selected days between 06:00 and 06:10, turn West Bed
+   irrigation On when soil moisture falls below 25%. Restore Off when moisture
+   reaches 35% or when the watering window ends, whichever happens first.”**
+6. Save the disabled draft. Verify the sensor, channel, scale, and preview,
+   then enable and save it. Observe a short watering trial and confirm the
+   reported Off state and switch event at the end.
+<!-- pdf-keep-together:end -->
+
+##### Before You Leave A Control Rule Enabled
+
+For the On recipes above, **To previous state** provides the return to Off.
+Saving an enabled rule, or enabling a disabled rule with this restore setting,
+first prepares the switch at the opposite state: Off for an On action. That
+preparation operates the switch and must be confirmed by the device. If the
+conditions already match, the action can then turn it On immediately.
+An enabled automation owns its switch channel; disable it before manual tests.
+
+These are Sensorius-controlled rules, including when the switch is on Nodus.
+Sensorius must be running and able to communicate to apply changes. After
+recovery, it checks the current conditions: if the On window has ended, the
+saved Off restoration remains pending until Nodus reports Off. It does not
+need to observe the exact end-of-window transition. A time window is not an
+independent Nodus shutdown timer, and missed one-time Calendar events are not
+replayed. **Leave at set state** would deliberately leave the switch On when
+the condition ends, so it does not provide the return to Off in these recipes.
+
+<a id="edit-locations-pane"></a>
+
 ### Edit Locations Pane
 
 ![Edit Locations pane](<../assets/screenshots/system-settings-edit-locations.png>)
@@ -995,6 +1070,8 @@ Expand **Weather Station** for **Ecowitt Gateway**, **AcuRite USB Console**,
 section expands and collapses independently. See [USB console support](weather_adapters.md#additional-usb-consoles)
 for supported hardware and configuration.
 The descriptions below follow the same order.
+
+<a id="nodus-device"></a>
 
 #### Nodus Device
 
@@ -1070,7 +1147,13 @@ onboarding reaches Device Online, Sensorius automatically reloads the dashboard
 so the newly discovered Sensor Group, Sensor Tiles, and Switch Tiles appear
 without a manual browser refresh.
 
-#### Ecowitt Gateway
+<a id="weather-station"></a>
+
+#### Weather Station
+
+<a id="ecowitt-gateway"></a>
+
+##### Ecowitt Gateway
 
 ![Add Device Ecowitt Gateway pane](<../assets/screenshots/system-settings-add-device-ecowitt.png>)
 
@@ -1141,7 +1224,9 @@ with the gateway firmware version; do not include Wi-Fi credentials or weather
 service keys. The read-only `/ecowitt/status` response includes `live_metrics`,
 the normalized metric names accepted during the most recent discovery or poll.
 
-#### AcuRite USB Console
+<a id="acurite-usb-console"></a>
+
+##### AcuRite USB Console
 
 ![Add Device AcuRite USB Console pane](<../assets/screenshots/system-settings-add-device-acurite.png>)
 
@@ -1165,7 +1250,9 @@ characters of their UUID; their full IDs remain in settings and history. For exa
 platform installer for USB dependencies and permissions. See [AcuRite USB](acurite_usb.md)
 for setup, supported fields and physical-validation limitations.
 
-#### Davis Vue USB Console
+<a id="davis-vue-usb-console"></a>
+
+##### Davis Vue USB Console
 
 Open **General Settings > Add Device > Weather Station > Davis Vue USB Console**.
 Use a Vantage Vue console with a compatible USB serial datalogger and one Vue
@@ -1174,7 +1261,9 @@ rate, set the retrieval interval, and select **Enable** and **Save Console**.
 Leave the console’s setup screens and close WeatherLink, WeeWX, and other serial
 readers. Outdoor readings appear after reception progress is verified.
 
-#### Oregon Scientific USB Console
+<a id="oregon-scientific-usb-console"></a>
+
+##### Oregon Scientific USB Console
 
 Open **General Settings > Add Device > Weather Station > Oregon Scientific USB
 Console**. Connect a supported WMR100-family console and close WeeWX or other
@@ -1185,6 +1274,8 @@ console, or specify it when several are attached.
 USB reports arrive continuously; the snapshot interval controls saved weather
 snapshots. Sensorius uses native HID on macOS and Windows and libusb on Linux
 and Raspberry Pi. WMR200, WMR300, and other Oregon protocols are not supported.
+
+<a id="update-device-pane"></a>
 
 ### Update Device Pane
 
@@ -1232,14 +1323,20 @@ three attempts per file and stops one device update after 30 minutes. If OTA
 mode does not start or those limits are exhausted, Sensorius requests OTA abort
 and reports a concise recovery message.
 
-### Halt or Remove Device Pane
+<a id="halt-or-remove-device-pane"></a>
 
-![Halt Device(s) expanded in the Halt or Remove Device pane](<../assets/screenshots/system-settings-halt-device.png>)
+### Halt or Remove Device Pane
 
 The **Halt or Remove Device** menu contains two collapsible sections. Each
 section keeps its acknowledgement checkbox and action button at the bottom
 of the expanded section. Select at least one device and acknowledge the action
 to enable its button.
+
+<a id="halt-devices"></a>
+
+#### Halt Device(s)
+
+![Halt Device(s) expanded in the Halt or Remove Device pane](<../assets/screenshots/system-settings-halt-device.png>)
 
 **Halt Device(s)** lists Nodus devices that support halting. **Halt Selected** stops the
 application and syncs its filesystem while holding current relay outputs. Wait
@@ -1247,6 +1344,10 @@ for each device to confirm it has halted before unplugging it. If a device goes
 offline, times out, or reports an error, do not assume the halt completed.
 Halt preserves Sensorius settings and history. Power cycle or reset the Nodus
 to resume operation.
+
+<a id="remove-devices"></a>
+
+#### Remove Device(s)
 
 ![Remove Device(s) expanded in the Halt or Remove Device pane](<../assets/screenshots/system-settings-remove-device.png>)
 
@@ -1266,12 +1367,16 @@ trying again; restarting Sensorius also allows removed devices to appear again.
 
 Before removing a device, update any automations, Home Assistant dashboards, farmOS expectations, or written operating procedures that depend on it.
 
+<a id="integrations-pane"></a>
+
 ### Integrations Pane
 
 General Settings presents Home Assistant, WeeWX, and FarmOS under the
 **Integrations** menu item. Each integration is an independently expandable
 block. Scroll the right pane vertically when the expanded blocks exceed the
 available height.
+
+<a id="farmos"></a>
 
 #### FarmOS
 
@@ -1294,6 +1399,8 @@ Fields and selectors:
 
 farmOS export listens for new readings written by Sensorius. Check the FarmOS status if exports stop; it reports enabled state, queue depth, token state, and last error.
 
+<a id="home-assistant"></a>
+
 #### Home Assistant
 
 ![Home Assistant integration pane](<../assets/screenshots/system-integrations-home-assistant.png>)
@@ -1310,6 +1417,8 @@ Fields and selectors:
 - **Save**: writes the `[HomeAssistant]` settings.
 
 Expected flow: configure the broker, enable the integration, let Sensorius publish retained discovery topics, then let Home Assistant observe sensors and switches through MQTT.
+
+<a id="weewx"></a>
 
 #### WeeWX
 
@@ -1341,11 +1450,15 @@ If the MQTT topic changes, Sensorius applies the subscription update live when
 MQTT ingest is running. If MQTT ingest is not running, the saved setting applies
 when MQTT ingest starts.
 
+<a id="advanced-pane"></a>
+
 ### Advanced Pane
 
 ![Advanced settings pane](<../assets/screenshots/system-settings-advanced.png>)
 
 Advanced settings affect startup, logging, and stored data. Change them only when you understand the impact.
+
+<a id="database"></a>
 
 #### Database
 
@@ -1359,6 +1472,8 @@ at the bottom right. On narrow screens, these controls stack in the same order.
 - **Maximum Days of Data (30-365)**: database retention window, shown in the rightmost column. Valid range is 30 to 365 days. This affects how much history graphs can show.
 - **Save**: saves the Database retention setting. Archive and Renew run separately from Save.
 
+<a id="debug"></a>
+
 #### Debug
 
 - **SENSORIUS_FILE_LOG**: enables file logging when checked.
@@ -1366,12 +1481,16 @@ at the bottom right. On narrow screens, these controls stack in the same order.
 - **SENSORIUS_DEBUG_MODULES**: module-specific debug checkboxes. Options are loaded from the app's advanced status endpoint.
 - **Save**: writes only the Debug section.
 
+<a id="start-up"></a>
+
 #### Start-up
 
 - **Auto-start Sensorius on login**: creates or removes an auto-start entry for Sensorius.
 - **Auto-start scope**: **User-level (default)** starts for the current user. **System-level** is for system service style installs and may require elevated permissions outside the web UI.
 - **Save**: writes only the Start-up section.
 - **Restart System**: the red button at the bottom left restarts the Sensorius service, then reloads the dashboard when a new app instance responds. It is enabled only when the running instance belongs to an enabled automatic service: a system or user systemd service on Linux, a launchd service on macOS, or a Sensorius boot/login scheduled task on Windows. A manual launch or a Windows Startup-folder entry alone does not enable it. The operating system must allow the service account to restart its service/task; permission failures are shown in the pane. This restarts Sensorius, not the computer.
+
+<a id="sensor-settings"></a>
 
 ## Sensor Settings
 
@@ -1527,6 +1646,8 @@ Fields shown:
 
 Use this pane when a sensor appears stale, missing, or unstable.
 
+<a id="switch-settings"></a>
+
 ## Switch Settings
 
 Switches control things such as pumps, fans, lights, valves, heaters, vents, and other relay-driven equipment. A switch may be a local Raspberry Pi relay board or a remote Nodus switch. Sensorius presents both through the same dashboard and settings screens.
@@ -1573,6 +1694,8 @@ The Switch Info pane shows:
 - **Clear**: clears the browser-side display baseline for statistics.
 
 Use this pane when commands do not seem to reach a switch or when a remote relay appears to drop offline.
+
+<a id="sensorius-graphum"></a>
 
 ## Sensorius Graphum
 
@@ -1650,6 +1773,8 @@ workspace and return to the dashboard.
 
 Use switch overlays to answer practical questions: whether a fan cooled the greenhouse, whether irrigation raised soil moisture, or whether lights changed VPD.
 
+<a id="severe-weather-us-nws"></a>
+
 ## Severe Weather (US NWS)
 
 When **US · National Weather Service** is selected, Sensorius checks the Astral
@@ -1668,6 +1793,8 @@ The orange forecast indication remains until the weather warning ends.
 Advisories, statements, test messages, and other forecast providers do not
 activate this condition. See [Severe Weather automation behavior](automations.md#severe-weather)
 for delay, reversion, and delivery details.
+
+<a id="caelus-weather-forecast"></a>
 
 ## Caelus Weather Forecast
 
@@ -1780,6 +1907,8 @@ relative humidity minimum–maximum, wind minimum–maximum, and rain or snow ch
 directly in the daily tiles. Temperature and wind follow the selected display
 units. These details fit within the existing forecast card.
 
+<a id="biodynamic-calendar-features"></a>
+
 ## Biodynamic Calendar Features
 
 ![Current Biodynamic Calendar overview using the Autumn theme](<../assets/screenshots/biodynamic-calendar-overview.png>)
@@ -1849,6 +1978,8 @@ generated on demand when a day is selected. Browsing future months does not
 generate summaries for their default day. For the current day, the summary may
 include a **24hr Forecast** section if weather forecast data is enabled in
 General Settings.
+
+<a id="mobile-operations"></a>
 
 ## Mobile Operations
 
@@ -1961,6 +2092,8 @@ example shows the chart area; its selectors are farther down the same view.
 6. Tap the **circled ×** at the top to return to the dashboard. The dashboard
    returns to its usual scaling when Graphum closes.
 
+<a id="good-operating-habits"></a>
+
 ## Good Operating Habits
 
 - Use names and locations that match how people talk about the garden or farm.
@@ -1970,6 +2103,8 @@ example shows the chart area; its selectors are farther down the same view.
 - Keep MQTT broker addresses stable once Nodus devices or Home Assistant depend on them.
 - Back up `sensor_settings/`, `switch_settings/`, `system_settings/`, and `sensorius_data.db` before major changes.
 - Restart Sensorius after changes that affect startup, host binding, service setup, or MQTT subscriptions when the UI or save message indicates a restart is needed.
+
+<a id="opening-sensorius"></a>
 
 ## Opening Sensorius
 
@@ -2132,6 +2267,8 @@ prevents direct access from other LAN or VPN devices. Treat `.env`, runtime
 settings, backups, and diagnostic exports as sensitive because stored secrets
 are not protected by strong encryption.
 
+<a id="where-sensorius-gets-its-information"></a>
+
 ## Where Sensorius Gets Its Information
 
 Live sensor readings come from local Raspberry Pi sensor controllers and from MQTT-discovered Nodus devices. Sensor readings are written to the local SQLite database, `sensorius_data.db`, in the Sensorius process working directory unless the service or caller passes a different database path. Many service installs use the runtime directory, such as `/Users/<user>/Sensorius/sensorius_data.db` on macOS or `/home/<user>/Sensorius/sensorius_data.db` on Linux.
@@ -2144,6 +2281,8 @@ Sensor and switch names, locations, display choices, calibration offsets, and ch
 - Advanced automations: `/Users/<user>/Sensorius/automation_settings/automations.toml`
 
 For Nodus devices, Sensorius also listens for MQTT metadata and state messages. That metadata tells Sensorius what a device is, which readings or channels it provides, whether it is online, and which remote settings can be updated.
+
+<a id="troubleshooting"></a>
 
 ## Troubleshooting
 
