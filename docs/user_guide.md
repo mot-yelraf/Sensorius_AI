@@ -11,6 +11,152 @@ Sensorius can run as a Raspberry Pi hub with directly connected sensors and rela
 Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches, as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect, Davis Vantage Vue USB datalogger, and Oregon Scientific WMR100-family USB consoles. These devices appear together on the same dashboard.
 
 <!-- pdf-keep-together:start -->
+<a id="your-first-useful-setup"></a>
+
+## Your First Useful Setup
+
+Choose one path through this walkthrough:
+
+- **Monitor only**: name a place, confirm a fresh sensor reading, and receive
+  an alert. No switch is required.
+- **Monitor and control**: complete the monitoring steps, then use a sensor
+  reading to operate a fan, pump, or valve.
+
+These steps use the existing settings and [automation editor](#automations-pane).
+The recipe names below are examples you enter as **Automation Name**. Read each
+plain-language preview before setting **Enable** to **Yes**.
+<!-- pdf-keep-together:end -->
+
+### Name Your Location And Confirm A Reading
+
+1. If the sensor is not on the dashboard yet, add it through
+   [General Settings > Add Device](#add-device-pane), using the instructions for
+   your device type.
+2. Open **General Settings > Edit Locations**. Give the sensor a practical
+   location such as **Greenhouse 1** or **West Bed**, then select **Save**.
+   For control, assign the associated switch to the same location. This is the
+   device's location, separate from the community name and Astral coordinates.
+3. Return to the dashboard and select that location in the **Location Tile**.
+   Find the sensor and the metric you plan to use, such as temperature or soil
+   moisture. Check its units and whether its value is plausible.
+4. Open the metric in **Sensorius Graphum** and inspect the latest point's
+   timestamp across a normal reporting interval to confirm that new readings
+   are arriving. For network devices, also open **Sensor Settings > Sensor
+   Info** and check **Last packet received** and **Data packets received**,
+   where reported. A steady value can be fresh; an old value still visible on
+   a tile does not by itself prove that the device is reporting.
+
+### Monitor Only: Test Your First Alert
+
+1. Open **General Settings > Automations > New**. Name the automation
+   **Greenhouse alert test**, and leave **Enable** at **No** while editing.
+2. Add a **Sensor** condition. Pick your sensor and its temperature metric,
+   choose `>`, and set **Hysteresis** to `0` for this temporary test. Set
+   **Threshold** just below the fresh reading. For example, if it reads
+   22°C, enter 21°C; if it reads 72°F, enter 71°F.
+3. Choose **Alert** under **Actors**. This displays a dashboard notification.
+   For email, configure **General Settings > Notifications**, use **Send Test
+   Email** to confirm delivery, then choose **Notify** and enter **To** instead.
+4. Review the rule in plain language: **“When Greenhouse 1's selected
+   temperature is above 21°C, show a dashboard alert. Do not operate a switch.”**
+   Substitute your own sensor, units, threshold, and delivery method.
+5. Select **Save** with **Enable: No** to keep a disabled draft. When ready,
+   set **Enable: Yes** and select **Save**. Keep the dashboard open for an
+   **Alert**, and wait for the next automation evaluation. Confirm that the
+   message identifies the expected location, metric, and reading.
+6. Disable and save the test rule. Remove it, or replace the test threshold
+   with the threshold you actually want to monitor before enabling it again.
+
+For a useful ongoing alert, follow **Warn about frost** below. A dashboard
+**Alert** requires an open dashboard to see the notification; **Notify** sends
+email through the configured notification service.
+
+### Monitor And Control: Choose A Recipe
+
+First complete the location, fresh-reading, and alert checks above. With the
+automation disabled, test the intended switch channel manually and confirm
+that it operates the expected equipment. End the test with the fan, pump, or
+valve **Off**. For a first trial, use a harmless test load.
+
+For each recipe, open **General Settings > Automations > New**, leave
+**Enable: No**, and enter the example name. Pick your own sensor, metric,
+switch channel where needed, and thresholds. The numbers below illustrate the
+rule behavior; choose values appropriate to your installation. Temperature
+fields follow your selected Metric/Imperial display units.
+
+#### Ventilate When Hot
+
+1. Add a **Sensor** condition for the greenhouse temperature. Choose operator
+   `>`, **Threshold: 28°C** (82.4°F), and **Hysteresis: 1°C** (1.8°F).
+2. Under **Actors**, select the ventilation fan's switch channel. Set
+   **Set State: On**, **Restore Action: To previous state**, and
+   **Delay Action (secs): 0**.
+3. Preview: **“When Greenhouse 1 temperature rises above 29°C (84.2°F), turn
+   the ventilation fan On. Keep it On until temperature reaches 27°C (80.6°F)
+   or lower, then restore Off.”** Hysteresis puts the turn-on and turn-off
+   points on either side of the threshold.
+4. Save the disabled draft. Check the channel and preview, then enable and
+   save it. Observe the fan's reported state and its switch events as the
+   temperature crosses the two limits.
+
+#### Warn About Frost
+
+This recipe works on either path and needs no switch.
+
+1. Add a **Sensor** condition using the temperature sensor at the place you
+   want to protect, such as **West Bed**. Choose `<`, **Threshold: 2°C**
+   (35.6°F), and **Hysteresis: 0**.
+2. Choose **Alert** for a dashboard warning, or **Notify** and a **To** recipient
+   for email. Add another action if you want both.
+3. Preview: **“When West Bed temperature is below 2°C (35.6°F), warn me.
+   Do not operate a switch.”** A Notify action also sends a **CLEARED** email
+   when the condition stops matching.
+4. Save the disabled draft, review the sensor and delivery choice, then enable
+   and save it. Use the temporary-threshold procedure above to verify delivery
+   before relying on the real frost threshold.
+
+<!-- pdf-keep-together:start -->
+#### Water When Soil Is Dry
+
+1. Select a calibrated soil-moisture metric. Check its scale and direction:
+   this example assumes a percentage where **lower means drier**. Use the
+   metric's native units and an appropriate comparison for other sensors.
+2. Add a **Sensor** condition with `<`, **Threshold: 30**, and
+   **Hysteresis: 5** percentage points.
+3. Add a **Time of Day** condition in the same group, for example **Start
+   Time: 06:00**, **Stop Time: 06:10**, with your chosen days. Both conditions
+   must match. This confines watering to that window while Sensorius is
+   controlling the switch.
+4. Under **Actors**, select the irrigation pump or valve channel. Choose
+   **Set State: On**, **Restore Action: To previous state**, and
+   **Delay Action (secs): 0**.
+5. Preview: **“On the selected days between 06:00 and 06:10, turn West Bed
+   irrigation On when soil moisture falls below 25%. Restore Off when moisture
+   reaches 35% or when the watering window ends, whichever happens first.”**
+6. Save the disabled draft. Verify the sensor, channel, scale, and preview,
+   then enable and save it. Observe a short watering trial and confirm the
+   reported Off state and switch event at the end.
+<!-- pdf-keep-together:end -->
+
+### Before You Leave A Control Rule Enabled
+
+For the On recipes above, **To previous state** provides the return to Off.
+Saving an enabled rule, or enabling a disabled rule with this restore setting,
+first prepares the switch at the opposite state: Off for an On action. That
+preparation operates the switch and must be confirmed by the device. If the
+conditions already match, the action can then turn it On immediately.
+An enabled automation owns its switch channel; disable it before manual tests.
+
+These are Sensorius-controlled rules, including when the switch is on Nodus.
+Sensorius must be running and able to communicate to apply changes. After
+recovery, it checks the current conditions: if the On window has ended, the
+saved Off restoration remains pending until Nodus reports Off. It does not
+need to observe the exact end-of-window transition. A time window is not an
+independent Nodus shutdown timer, and missed one-time Calendar events are not
+replayed. **Leave at set state** would deliberately leave the switch On when
+the condition ends, so it does not provide the return to Off in these recipes.
+
+<!-- pdf-keep-together:start -->
 ## Dashboard Overview
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
@@ -666,6 +812,8 @@ When that sensor reports temperature or relative humidity, the dashboard's
 24-hour forecast tile shows the live reading before the forecast range. The
 temperature reading and range use the selected system display units.
 
+<a id="automations-pane"></a>
+
 ### Automations Pane
 
 ![System automations pane](<../assets/screenshots/system-automations-list.png>)
@@ -675,6 +823,11 @@ from General Settings and are no longer edited from an individual switch's
 settings. The saved list shows every automation and whether it is enabled.
 This also allows a notification-only automation to run when no switch is
 installed.
+
+For a first setup, follow [Monitor only or Monitor and control](#your-first-useful-setup).
+The walkthrough includes an alert test and recipes for ventilation, frost
+warnings, and soil-moisture irrigation, with plain-language previews to review
+before enabling a rule.
 
 Controls:
 
@@ -830,6 +983,8 @@ Locations should describe places people recognize: Greenhouse 1, West Bed, Seedl
 After a location change is saved, Sensorius reloads the dashboard so existing
 Sensor Group headings, the grouping of Switch Tiles, and the location filter
 use the new value.
+
+<a id="add-device-pane"></a>
 
 ### Add Device Pane
 

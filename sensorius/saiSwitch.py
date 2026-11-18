@@ -509,14 +509,13 @@ class SwitchController:
                 desired=desired,
             )
             if generic_revert_to is not None:
-                event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
                 if DEBUG:
                     printDM(
                         f"[advanced] {target_label} rule {rule_id or '?'} recovering previous_state from "
                         f"generic transition: current={authoritative_current} revert_to={generic_revert_to}",
                         location=MODULE,
                     )
-                return bool(self.set_state(target_label, generic_revert_to, force=True, event_source=event_source))
+                return self._apply_recovered_advanced_revert(info, generic_revert_to)
             if DEBUG:
                 row_preview = [
                     {
@@ -548,14 +547,54 @@ class SwitchController:
                 )
             return False
 
-        event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
         if DEBUG:
             printDM(
                 f"[advanced] {target_label} rule {rule_id or '?'} recovering previous_state from history: "
                 f"current={authoritative_current} revert_to={revert_to} matched_row={matched_idx}",
                 location=MODULE,
             )
+        return self._apply_recovered_advanced_revert(info, revert_to)
+
+    def _apply_recovered_advanced_revert(self, info: dict, revert_to: bool) -> bool:
+        """Save a recovered restoration before requesting the device change."""
+        rule_id = str(info.get("rule_id", "") or "").strip()
+        target_label = str(info.get("target_label", "") or "").strip()
+        switch_key = str(info.get("switch_key", "") or "").strip()
+        desired = bool(info.get("desired", True))
+        rule_name = str(info.get("rule_name", "") or "").strip()
+        action_key = (rule_id, target_label, switch_key, desired)
+        self._advanced_active_actions[action_key] = {
+            "rule_id": rule_id,
+            "rule_name": rule_name,
+            "target_label": target_label,
+            "switch_key": switch_key,
+            "desired": desired,
+            "revert_action": "previous_state",
+            "revert_to": bool(revert_to),
+            "activated_at": time.monotonic(),
+        }
+        self._persist_advanced_runtime_state()
+        event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
         return bool(self.set_state(target_label, revert_to, force=True, event_source=event_source))
+
+    def _advanced_restoration_confirmed(self, target_label: str, revert_to: bool) -> bool:
+        """Require reported MQTT state instead of saved TOML state for Nodus."""
+        if not bool(getattr(self, "is_remote", False)):
+            return bool(self.get_state(target_label)) == revert_to
+        ing = getattr(self, "mqtt_ingest", None)
+        if ing is None:
+            from .saiMQTTIngest import get_current_ingest
+            ing = get_current_ingest()
+        states = (getattr(ing, "_switch_state_cache", {}) or {}).get(self.switch_id, {}) or {}
+        channel_id = str((self.channel_id_for_label or {}).get(target_label, "") or "").strip()
+        for key in (channel_id, channel_id.lower(), target_label, target_label.lower()):
+            raw = states.get(key) if key else None
+            if raw is not None:
+                state = str(raw).strip().lower()
+                if state not in {"on", "true", "1", "off", "false", "0"}:
+                    return False
+                return (state in {"on", "true", "1"}) == revert_to
+        return False
 
     def _infer_previous_state_revert_from_transition(
         self,
@@ -2367,8 +2406,7 @@ class SwitchController:
                 return True
 
             revert_to = bool(active.get("revert_to", False))
-            current_state = bool(self.get_state(target_label))
-            if current_state == revert_to:
+            if self._advanced_restoration_confirmed(target_label, revert_to):
                 active_actions.pop(action_key, None)
                 persist_active_actions = True
                 return True
@@ -2376,7 +2414,9 @@ class SwitchController:
             rule_name = str(active.get("rule_name", "") or "").strip()
             event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
             ok = bool(self.set_state(target_label, revert_to, force=True, event_source=event_source))
-            if ok or bool(self.get_state(target_label)) == revert_to:
+            if self._advanced_restoration_confirmed(target_label, revert_to) or (
+                ok and not bool(getattr(self, "is_remote", False))
+            ):
                 active_actions.pop(action_key, None)
                 persist_active_actions = True
                 return True

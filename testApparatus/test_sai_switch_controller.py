@@ -2396,6 +2396,134 @@ def test_remote_command_acceptance_does_not_start_timer_or_change_confirmed_stat
     assert ctrl.auto_off_deadline['Fan'] == pytest.approx(161.0)
 
 
+@pytest.mark.parametrize("history_recovery", [False, True])
+def test_remote_recovery_keeps_restoration_until_confirmed_across_restart(monkeypatch, history_recovery):
+    """Accepted MQTT requests must not discard a still-required restoration."""
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    ctrl.last_state["Fan"] = True
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={})
+    key = ("r", "Fan", "sw1::CH1", True)
+    info = {"rule_id": "r", "rule_name": "Cooling", "target_label": "Fan",
+            "switch_key": "sw1::CH1", "desired": True, "rule_ok": False,
+            "conditions": [], "revert_action": "previous_state", "delay_s": 0}
+    saved = {}
+
+    class SettingsManager:
+        def __init__(self, *_args):
+            pass
+
+        def set_setting(self, switch_id, path, value):
+            assert switch_id == "sw1"
+            assert path == "Runtime.ADVANCED_ACTIVE_ACTIONS_JSON"
+            saved["raw"] = value
+
+    monkeypatch.setattr("sensorius.saiSwitchSettingsManager.SwitchSettingsManager", SettingsManager)
+    calls = []
+    accepted = {"value": False}
+
+    def send(label, on, **kwargs):
+        assert saved["raw"]
+        calls.append((label, on))
+        return accepted["value"]
+
+    ctrl._set_switch_state = send
+    if history_recovery:
+        ctrl.data_logger = types.SimpleNamespace(get_last_switch_events=lambda *_a, **_k: [
+            ("On", "2026-11-18 08:00:00", "auto/rule:Cooling"),
+            ("Off", "2026-11-18 07:59:00", "manual/ui"),
+        ])
+    else:
+        ctrl.settings = {"Runtime": {"ADVANCED_ACTIVE_ACTIONS_JSON": saiSwitch.json.dumps([
+            dict(info, revert_to=False, activated_at=1.0)
+        ])}}
+        ctrl._restore_advanced_runtime_state()
+        saved["raw"] = ctrl.settings["Runtime"]["ADVANCED_ACTIVE_ACTIONS_JSON"]
+
+    def apply():
+        ctrl._apply_advanced_action_evaluations(
+            {key: info}, now_mono=time.monotonic(), pending_actions=ctrl._advanced_delay_due,
+            active_actions=ctrl._advanced_active_actions, weather_service=None,
+            debug_cycle_verbose=False,
+        )
+
+    apply()
+    assert key in ctrl._advanced_active_actions
+    assert calls == [("Fan", False)]
+    accepted["value"] = True
+    apply()
+    apply()
+    assert ctrl.get_state("Fan") is True
+    assert key in ctrl._advanced_active_actions
+    assert len(calls) == 3
+    assert saiSwitch.json.loads(saved["raw"])[0]["revert_to"] is False
+
+    ctrl.settings = {"Runtime": {"ADVANCED_ACTIVE_ACTIONS_JSON": saved["raw"]}}
+    ctrl._restore_advanced_runtime_state()
+    apply()
+    assert len(calls) == 4 and key in ctrl._advanced_active_actions
+    ctrl.last_state["Fan"] = False
+    apply()
+    assert len(calls) == 5 and key in ctrl._advanced_active_actions
+    ctrl.mqtt_ingest._switch_state_cache = {"sw1": {"CH1": "unknown"}}
+    apply()
+    assert len(calls) == 6 and key in ctrl._advanced_active_actions
+    ctrl.mqtt_ingest._switch_state_cache = {"sw1": {"CH1": "Off"}}
+    apply()
+    assert len(calls) == 6
+    assert ctrl._advanced_active_actions == {}
+    assert saved["raw"] == ""
+
+
+def test_remote_recovery_rechecks_conditions_before_retrying_off():
+    """A resumed On window supersedes the pending restoration to Off."""
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    key = ("r", "Fan", "sw1::CH1", True)
+    info = {"rule_id": "r", "target_label": "Fan", "switch_key": "sw1::CH1",
+            "desired": True, "rule_ok": True, "revert_action": "previous_state"}
+    ctrl._advanced_active_actions[key] = dict(info, revert_to=False)
+    calls = []
+    ctrl._set_switch_state = lambda label, on, **kwargs: calls.append((label, on)) or True
+    ctrl._persist_advanced_runtime_state = lambda: None
+    ctrl._apply_advanced_action_evaluations(
+        {key: info}, now_mono=time.monotonic(), pending_actions=ctrl._advanced_delay_due,
+        active_actions=ctrl._advanced_active_actions, weather_service=None,
+        debug_cycle_verbose=False,
+    )
+    assert calls == [("Fan", True)]
+    assert key in ctrl._advanced_active_actions
+
+
+def test_remote_off_rule_reconciles_after_restart_without_observing_transition():
+    """An already-matching Off rule retries until the reported switch is Off."""
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    ctrl.last_state["Fan"] = True
+    ctrl._load_triggers_dict = lambda: {"Advanced": {"r": {
+        "enabled": True,
+        "script_json": {"enabled": True, "name": "Keep Off",
+                        "conditions": [{"type": "time", "start": "00:00", "end": "24:00"}],
+                        "actions": [{"switch_key": "sw1::CH1", "set": False}]},
+    }}}
+    calls = []
+    outcomes = iter([False, True, True])
+
+    def send(label, on, **kwargs):
+        calls.append((label, on))
+        return next(outcomes)
+
+    ctrl._set_switch_state = send
+    ctrl._persist_advanced_runtime_state = lambda: None
+    for _ in range(3):
+        ctrl._evaluate_and_apply_advanced({})
+    assert calls == [("Fan", False)] * 3
+    assert ctrl.last_state["Fan"] is True
+    ctrl.last_state["Fan"] = False
+    ctrl._evaluate_and_apply_advanced({})
+    assert len(calls) == 3
+
+
 def test_action_execution_retries_failed_delayed_commands_and_removed_rule_reverts(monkeypatch):
     """The execution phase preserves pending work until commands are accepted."""
     ctrl = _make_controller()
