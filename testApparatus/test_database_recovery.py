@@ -169,6 +169,46 @@ def test_web_route_sqlite_connect_uses_shared_recovery(tmp_path, monkeypatch: py
     assert len(_recovery_dirs(tmp_path)) == 1
 
 
+def test_sqlite_cli_import_handles_legacy_recovery_with_defensive_default(tmp_path, monkeypatch):
+    """Legacy recovery SQL must restore AUTOINCREMENT rows on defensive CLIs."""
+    sqlite3_bin = shutil.which("sqlite3")
+    if not sqlite3_bin:
+        pytest.skip("sqlite3 CLI is not installed")
+    probe = subprocess.run(
+        [sqlite3_bin, ":memory:", ".dbconfig defensive"],
+        capture_output=True, text=True, check=False, timeout=5,
+    )
+    if probe.returncode != 0:
+        pytest.skip("sqlite3 CLI does not expose defensive mode")
+
+    source_copy = tmp_path / "source.db"
+    recovered_path = tmp_path / "recovered.db"
+    legacy_sql = """BEGIN;
+PRAGMA writable_schema = on;
+CREATE TABLE sqlite_sequence(name,seq);
+CREATE TABLE readings(id INTEGER PRIMARY KEY AUTOINCREMENT, value REAL);
+INSERT INTO readings VALUES(1,25.0);
+DELETE FROM sqlite_sequence;
+INSERT INTO sqlite_sequence VALUES('readings',1);
+PRAGMA writable_schema = off;
+COMMIT;
+"""
+    run = subprocess.run
+
+    def defensive_cli(args, **kwargs):
+        if args[-1] == ".recover":
+            kwargs["stdout"].write(legacy_sql)
+            return subprocess.CompletedProcess(args, 0, stderr="")
+        return run([args[0], "-cmd", ".dbconfig defensive on", *args[1:]], **kwargs)
+
+    monkeypatch.setattr(datalogger_module.subprocess, "run", defensive_cli)
+    assert saiDataLogger._recover_with_sqlite_cli(source_copy, recovered_path, tmp_path)
+    with sqlite3.connect(recovered_path) as conn:
+        assert conn.execute("SELECT id, value FROM readings").fetchall() == [(1, 25.0)]
+        conn.execute("INSERT INTO readings(value) VALUES(26.0)")
+        assert conn.execute("SELECT seq FROM sqlite_sequence WHERE name='readings'").fetchone() == (2,)
+
+
 def test_sqlite_cli_recovery_preserves_rows_when_available(tmp_path, monkeypatch: pytest.MonkeyPatch):
     sqlite3_bin = shutil.which("sqlite3")
     if not sqlite3_bin:
