@@ -184,13 +184,20 @@ function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
   const delimIdx = preferredText.indexOf("::");
   const suffix = delimIdx >= 0 ? preferredText.slice(delimIdx + 2) : preferredText;
   const suffixLower = String(suffix || "").trim().toLowerCase();
+  const preferredSwitch = delimIdx >= 0 ? preferredText.slice(0, delimIdx).trim().toLowerCase() : "";
 
   const aliasOption = [...selectEl.options].find(o => {
-    const optionSuffix = String(o.value || "").split("::").slice(1).join("::").trim().toLowerCase();
+    const [optionSwitch, ...channelParts] = o.value.toLowerCase().split("::");
+    if (preferredSwitch && preferredSwitch !== optionSwitch) return false;
+    const optionSuffix = channelParts.join("::").trim();
     return optionSuffix === suffixLower || String(o.textContent || "").trim().toLowerCase() === suffixLower;
   });
   if (aliasOption) {
     selectEl.value = aliasOption.value;
+  } else {
+    const label = preferredText === "notify" ? "Notify" : preferredText;
+    selectEl.add(new Option(`${label} (unavailable)`, preferredText));
+    selectEl.value = preferredText;
   }
 }
 
@@ -943,13 +950,12 @@ function addAction(modal, action) {
 }
 
 // ----- Form helpers -----
-function loadSelectedIntoForm(rootLike){
+function loadSelectedIntoForm(rootLike, draft){
   const modal = getModalRoot(rootLike);
   if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadSelectedIntoForm"); return; }
 
   const a = automations.find(x => x.id === selectedId);
-  const auto = a || {
-    id: selectedId || `auto-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+  const auto = draft || a || {
     name: "", enabled:false, conditions: [], actions: []
   };
 
@@ -965,6 +971,12 @@ function loadSelectedIntoForm(rootLike){
 
   nameEl.value      = auto.name || "";
   enEl.value        = auto.enabled === false ? "false" : "true";
+  const duplicateBtn = q(modal, "#btnDuplicateAutomation");
+  if (duplicateBtn) duplicateBtn.hidden = !a;
+  const removeBtn = q(modal, "#btnRemove");
+  if (removeBtn) removeBtn.disabled = !a;
+  const statusEl = q(modal, "#automationSaveStatus");
+  if (statusEl) statusEl.textContent = "";
 
   box.innerHTML = "";
   if ((auto.conditions||[]).length === 0) addCondition(modal,{type:"sensor"});
@@ -990,7 +1002,7 @@ function serializeForm(modal){
       const start = readAutomationTimePicker(group, "start-time");
       const end   = readAutomationTimePicker(group, "end-time");
 
-      const dayChecks = group.querySelectorAll(".time input.dow-checkbox");
+      const dayChecks = group.querySelectorAll(".time-days input.dow-checkbox");
       const days = Array.from(dayChecks)
         .filter(cb => cb.checked)
         .map(cb => parseInt(cb.dataset.day || "0", 10))
@@ -1317,8 +1329,8 @@ async function saveCurrent(modal){
 }
 
 async function deleteSelected(modal){
-  if (!selectedId) return;
   const selected = automations.find(item => item.id === selectedId);
+  if (!selected) return;
   const displayName = String(selected?.name || selectedId).trim();
   if (!window.confirm(`Delete automation “${displayName}”?`)) return;
   await deleteAutomation(selectedId);
@@ -1378,27 +1390,39 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     const btnDel  = rootForQuery.querySelector("#btnRemove");
     const btnSavedAutomations = rootForQuery.querySelector("#btnSavedAutomations");
 
-    const startNewAutomation = () => {
+    const startNewAutomation = (draft) => {
       selectedId = `auto-${(crypto.randomUUID?.() || Math.random().toString(36).slice(2))}`;
       renderList(modalRoot);
-      loadSelectedIntoForm(modalRoot);
+      loadSelectedIntoForm(modalRoot, draft);
       setAutomationView(modalRoot, "editor");
     };
 
-    if (btnNew) btnNew.onclick = startNewAutomation;
-    if (btnNewFromList) btnNewFromList.onclick = startNewAutomation;
+    if (btnNew) btnNew.onclick = () => startNewAutomation();
+    if (btnNewFromList) btnNewFromList.onclick = () => startNewAutomation();
+    const btnDuplicate = rootForQuery.querySelector("#btnDuplicateAutomation");
+    if (btnDuplicate) btnDuplicate.onclick = () => {
+      const saved = automations.find(item => item.id === selectedId);
+      if (!saved) return;
+      startNewAutomation({ name: "", enabled: false, conditions: saved.conditions, actions: saved.actions });
+      elName?.focus();
+    };
     if (btnAdd)  btnAdd.onclick  = () => addCondition(modalRoot, { type:"sensor" });
     if (btnAddAction) btnAddAction.onclick = () => addAction(modalRoot, {});
-    if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).catch((e) => {
-      const statusEl = modalRoot.querySelector("#automationSaveStatus");
-      const msg = e && e.message ? e.message : "Save failed";
-      if (statusEl) statusEl.textContent = msg;
-      if (typeof window.showToast === "function") window.showToast(msg, "error");
-      if (btnSave) {
+    if (btnSave) btnSave.onclick = async () => {
+      if (btnDuplicate) btnDuplicate.disabled = true;
+      try {
+        await saveCurrent(modalRoot);
+      } catch (e) {
+        const statusEl = modalRoot.querySelector("#automationSaveStatus");
+        const msg = e && e.message ? e.message : "Save failed";
+        if (statusEl) statusEl.textContent = msg;
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
         btnSave.disabled = false;
         btnSave.textContent = btnSave.dataset.baseLabel || "Save";
+      } finally {
+        if (btnDuplicate) btnDuplicate.disabled = false;
       }
-    });
+    };
     if (btnDel)  btnDel.onclick  = () => deleteSelected(modalRoot);
     if (btnSavedAutomations) btnSavedAutomations.onclick = () => setAutomationView(modalRoot, "chooser");
 

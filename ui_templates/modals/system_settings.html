@@ -203,11 +203,13 @@
 #setupPiModal #adv-restart-note { grid-column: 1 / -1; }
 #setupPiModal .pane-footer-actions-right { justify-content: flex-end; }
 #setupPiModal #automationEditorWrap > .pane-footer {
+  flex-wrap: wrap;
   margin-left: 0;
   margin-right: 0;
   margin-bottom: 0;
   background: #fff;
 }
+#setupPiModal #btnDuplicateAutomation[hidden] { display: none; }
 #setupPiModal #pane-automations { overflow: hidden; }
 #setupPiModal .pane-global-footer {
   flex: 0 0 auto;
@@ -1457,6 +1459,7 @@
               </form>
               <div class="pane-footer pane-footer-actions-right">
                 <button class="button black" type="button" id="btnSavedAutomations">Saved Automations</button>
+                <button class="button green" type="button" id="btnDuplicateAutomation" hidden>Duplicate</button>
                 <button class="button green" type="button" id="btnNewAutomation">New</button>
                 <button class="button red" type="button" id="btnRemove">Remove</button>
               </div>
