@@ -5,6 +5,12 @@ by the switch controller monitors.
 Local GPIO relays and remote Nodus switches share the same controller contract,
 so automation rules use the same behavior for both.
 
+To reuse a rule, open it from **Saved Automations** and select **Duplicate**
+between **Saved Automations** and **New**. The editor opens an unnamed draft
+with **Enable** set to **No** and copies the saved conditions and actions.
+Give the copy a name, review its sensors and actors, and select **Save** to add
+it as a separate automation. The original remains in **Saved Automations**.
+
 ## Storage
 
 System automations are stored in:
