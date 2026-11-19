@@ -157,7 +157,24 @@ For a fuller narrative overview of system behavior and design goals, see `ABOUT.
 
 ## License
 
-Sensorius is licensed under the [BSD 2-Clause License](LICENSE).
+Copyright (c) 2026 T.W. Farley, dba Peace Hill Studios.
+
+Sensorius is free software: you can redistribute it and/or modify it under the
+terms of the [GNU General Public License, version 3 only](LICENSE)
+(`GPL-3.0-only`), as published by the Free Software Foundation.
+
+Sensorius is distributed without any warranty, including the implied warranties
+of merchantability or fitness for a particular purpose. See [LICENSE](LICENSE)
+for the full terms.
+
+This change applies to revisions distributed with this GPLv3 notice. Versions
+previously distributed under the BSD 2-Clause License remain available under
+those terms; the change does not revoke permissions already granted for those
+versions. Updating an existing clone to a GPLv3 revision brings in code covered
+by the new license.
+
+Third-party components and assets retain their own licenses and notices; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Attribution
 

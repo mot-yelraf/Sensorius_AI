@@ -12,6 +12,14 @@ Sensorius is the hub/runtime component of Sensorius Automatio Instrumentorum (Se
 
 This project is educational and approachable, but stability and architectural consistency are primary goals.
 
+## Licensing
+
+Contributions to Sensorius must be provided under the project's
+[GNU General Public License, version 3 only](LICENSE) (`GPL-3.0-only`). Submit
+only work you own or are authorized to contribute under these terms. Preserve
+third-party copyright and license notices and identify any third-party material
+in your pull request; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Workflow
 
 1. Fork the repository.
