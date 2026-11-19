@@ -131,6 +131,8 @@ class PlantingRequest(BaseModel):
     bed: Any = None
     attributes: Any = None
     notes: Any = None
+    environment: Any = None
+    stage_schedule: Any = None
 
 
 class BiodynamicSettingsStore(Protocol):
@@ -729,7 +731,17 @@ def register_biodynamic_calendar_routes(
 
     @router.post("/api/biodynamic-calendar-app/planting", response_class=JSONResponse)
     async def api_save_planting(body: PlantingRequest):
-        planting, error = _normalize_planting(body.model_dump(exclude_none=True))
+        raw = body.model_dump(exclude_none=True)
+        if raw.get("id") and ("stage_schedule" not in raw or "environment" not in raw):
+            try:
+                existing = await asyncio.to_thread(data_logger.get_biodynamic_plantings, raise_on_error=True)
+            except BiodynamicStorageError as exc:
+                return storage_unavailable(exc)
+            previous = next((item for item in existing if item.get("id") == raw["id"]), {})
+            for key in ("stage_schedule", "environment"):
+                if key in previous:
+                    raw.setdefault(key, previous[key])
+        planting, error = _normalize_planting(raw)
         if planting is None:
             return JSONResponse({"error": "invalid_planting", "reason": error}, status_code=400)
         try:

@@ -37,6 +37,7 @@ test('Duplicate opens a disabled draft from the saved rule and saves it separate
   await page.getByRole('link', { name: 'Open General Settings' }).click();
   const modal = page.locator('#setupPiModal');
   await modal.getByRole('button', { name: 'Automations', exact: true }).click();
+  await modal.locator('.automation-group[data-group="Other"] > summary').click();
   await modal.getByText(original.name, { exact: true }).click();
   const duplicate = modal.getByRole('button', { name: 'Duplicate' });
   await expect(modal.locator('#automationEditorWrap .pane-footer button')).toHaveText(['Saved Automations', 'Duplicate', 'New', 'Remove']);

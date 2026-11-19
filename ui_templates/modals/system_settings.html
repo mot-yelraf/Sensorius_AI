@@ -1416,9 +1416,19 @@
             <div id="automationChooser" class="automation-chooser">
               <div class="list-header">
                 <span>Saved Automations</span>
-                <button class="button green" type="button" id="btnNewFromList">New</button>
               </div>
               <div class="list" id="automationList"></div>
+              <div class="sai-live-status" id="automationArrangeStatus" role="status"></div>
+              <div class="pane-footer pane-footer-actions-right">
+                <div class="automation-create-actions">
+                  <button class="button green" type="button" id="btnNewFromList">New</button>
+                  <button class="button green" type="button" id="btnAutomationLibrary">Library</button>
+                </div>
+                <div class="automation-group-actions">
+                  <button class="button red" type="button" id="btnRemoveAutomationGroup" disabled>Remove Group</button>
+                  <button class="button green" type="button" id="btnAddAutomationGroup">Add Group</button>
+                </div>
+              </div>
             </div>
 
             <div id="automationEditorWrap" hidden>

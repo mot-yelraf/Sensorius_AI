@@ -108,6 +108,15 @@ delayed** above the dashboard. Existing values remain visible while automatic
 retries continue; the notice clears after a successful update. Expanding
 metrics or changing their display uses the latest received values.
 
+Both native desktop launch paths use a non-white initial canvas matching the
+default dashboard base color. The dashboard loads its stylesheets before chart
+libraries and downloads those libraries with ordered deferred execution. The
+styled viewport can paint while chart downloads are pending; gauges and charts
+initialize after their dependencies arrive. Slow CDN access can still delay
+chart readiness. Server health checks and the existing prewarm grace remain in
+place. The host browser gate verifies first paint with chart downloads held
+pending, then releases the real libraries and checks gauge initialization.
+
 For comparable Web UI profiles, close other dashboard tabs on the tested hub
 and run `testApparatus/profile_webui.py` with the same sample count and timeout
 for each host. The profiler uses headless Chromium, reports progress, and

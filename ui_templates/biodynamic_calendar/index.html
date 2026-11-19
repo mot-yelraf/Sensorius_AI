@@ -179,6 +179,7 @@
           <details class="inspector-section planting-panel" data-runtime-section="calendar-plantings">
             <summary>Plantings</summary>
           <div id="plantingStatus" class="hint" aria-live="polite"></div>
+          <div id="plantingAutomationStatus" class="hint" aria-live="polite"></div>
           <div id="plantingList" class="planting-list"></div>
           <details id="plantingEditor" class="planting-editor" data-runtime-section="calendar-planting-editor">
             <summary>Add planting</summary>
@@ -209,6 +210,21 @@
               <label class="wide">Plant Type<input name="plant_type" type="text" placeholder="Fruiting vegetable"></label>
               <label class="wide">Attributes<textarea name="attributes" rows="2" placeholder="Spacing, succession, hardening, trellis, harvest window..."></textarea></label>
             </div>
+            <details class="planting-stage-editor" data-runtime-section="calendar-planting-stages">
+              <summary>Automation stage windows</summary>
+              <p>Optional dates for library imports. End dates are exclusive. Dates are copied when importing; later changes do not rewrite saved automations.</p>
+              <div class="planting-grid">
+                <label>Environment<select name="environment"><option value="">Unspecified</option><option>Indoor</option><option>Outdoor</option><option>Greenhouse</option></select></label>
+                <label>Seedling start<input name="stage_seedling_start" type="date"></label>
+                <label>Seedling end (exclusive)<input name="stage_seedling_end" type="date"></label>
+                <label>Immature start<input name="stage_immature_start" type="date"></label>
+                <label>Immature end (exclusive)<input name="stage_immature_end" type="date"></label>
+                <label>Mature start<input name="stage_mature_start" type="date"></label>
+                <label>Mature end (exclusive)<input name="stage_mature_end" type="date"></label>
+                <label>Ready to Harvest start<input name="stage_harvest_start" type="date"></label>
+                <label>Ready to Harvest end (exclusive)<input name="stage_harvest_end" type="date"></label>
+              </div>
+            </details>
             <div class="planting-actions">
               <button id="savePlantingBtn" type="submit">Save Planting</button>
               <button id="clearPlantingBtn" type="button" class="secondary-btn">Clear</button>

@@ -53,7 +53,7 @@ window.initMobileSettings = function initMobileSettings(root) {
   body.before(nav);
   menu.classList.add("mobile-settings-menu");
   content.classList.add("mobile-settings-content");
-  [...menu.querySelectorAll("button"), ...content.querySelectorAll("details > summary")].forEach((item) => {
+  [...menu.querySelectorAll("button"), ...content.querySelectorAll("details:not([data-mobile-inline]) > summary")].forEach((item) => {
     item.dataset.mobileLabel = item.textContent.trim();
     const chevron = document.createElement("span");
     chevron.className = "mobile-settings-chevron";
@@ -79,7 +79,7 @@ window.initMobileSettings = function initMobileSettings(root) {
       ? path[path.length - 1].querySelector(":scope > summary").dataset.mobileLabel
       : (pane ? trigger?.dataset.mobileLabel || "Settings" : "Settings");
     if (media.matches) {
-      content.querySelectorAll("details").forEach((detail) => { detail.open = path.includes(detail); });
+      content.querySelectorAll("details:not([data-mobile-inline])").forEach((detail) => { detail.open = path.includes(detail); });
       if (path.length) {
         const current = path[path.length - 1];
         current.classList.add("mobile-settings-current");
@@ -121,6 +121,7 @@ window.initMobileSettings = function initMobileSettings(root) {
     }
     const summary = event.target.closest("summary");
     if (!summary || !content.contains(summary) || !summary.closest(paneSelector)) return;
+    if (summary.parentElement.hasAttribute("data-mobile-inline")) return;
     event.preventDefault();
     const detail = summary.parentElement;
     if (path.includes(detail)) return;
@@ -142,7 +143,7 @@ window.initMobileSettings = function initMobileSettings(root) {
   function resize() {
     root.classList.toggle("mobile-settings", media.matches);
     if (media.matches) {
-      desktopOpen = new Map(Array.from(content.querySelectorAll("details"), detail => [detail, detail.open]));
+      desktopOpen = new Map(Array.from(content.querySelectorAll("details:not([data-mobile-inline])"), detail => [detail, detail.open]));
       reset();
     } else {
       clearPath();

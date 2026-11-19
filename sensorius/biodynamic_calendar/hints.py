@@ -150,6 +150,16 @@ def _is_cannabis_planting(planting: dict[str, object]) -> bool:
 
 
 def _planting_stage_for_day(planting: dict[str, object], target_date: date) -> str:
+    schedule = planting.get("stage_schedule")
+    if isinstance(schedule, dict) and schedule:
+        for stage, window in schedule.items():
+            if not isinstance(window, dict):
+                continue
+            first = _parse_iso_date(window.get("start"))
+            last = _parse_iso_date(window.get("end"))
+            if first is not None and last is not None and first <= target_date < last:
+                return stage if stage in {"seedling", "immature", "mature", "harvest"} else "general"
+        return "general"
     start = _parse_iso_date(planting.get("start_date"))
     harvest = _parse_iso_date(planting.get("expected_harvest_date") or planting.get("harvest_date"))
     harvest_window = max(0, min(_safe_int(planting.get("harvest_window_days"), 3), 60))

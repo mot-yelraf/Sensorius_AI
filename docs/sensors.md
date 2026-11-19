@@ -274,6 +274,10 @@ the exact strings.
 
 ## Weather station reporting statistics
 
+Dashboard station titles for Ecowitt, AcuRite, Davis and Oregon Scientific show
+the final six characters of station UUIDs longer than six characters. Full sensor
+IDs remain unchanged in settings, MQTT and stored readings.
+
 Ecowitt and directly connected USB weather stations report **Reporting uptime**
 in Sensor Info even before any offline event has occurred. The session begins
 with the first healthy observation after the hub process starts, and restarts
@@ -316,3 +320,7 @@ station types default to disabled. Set the **Enable** checkbox and save to apply
 the desired acquisition state. See
 [USB console support](weather_adapters.md#additional-usb-consoles) for exact
 hardware requirements and protocol-fixture validation limits.
+
+Davis VUE barometric-pressure gauges use the sea-level pressure range, independent
+of the hub altitude. The separate absolute-pressure gauge uses the station-pressure
+range adjusted for hub altitude. These display ranges do not change stored readings.

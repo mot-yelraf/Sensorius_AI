@@ -1486,6 +1486,9 @@ class SwitchController:
                 period = int(cond.get("freq_hours", 1) or 1) * 60
             return f"[{status}] Timer active {duration} min every {int(period)} min"
 
+        if ctype == "calendar" and cond.get("calendar_kind") == "date_range":
+            return f"[{status}] Stage window {cond.get('calendar_start', '')} to {cond.get('calendar_end', '')} (end exclusive); {cond.get('calendar_timezone', 'UTC')}"
+
         if ctype == "calendar" and cond.get("calendar_kind") in {"date_time", "season"}:
             event = cond.get("_calendar_event") or {}
             when = self._format_biodynamic_transition_time(event.get("transition_at") or cond.get("calendar_at"))

@@ -1089,6 +1089,31 @@ canvas{
 .item-badge.enabled{ background:#30a846; color:#fff; }
 .item-badge.disabled{ background:transparent; color:#111; border:1px solid #d7dbe2; }
 .item-badge.legacy{ background:#fff1c2; color:#5f4500; border:1px solid #d9b94c; }
+#automationList{ display:flex; flex-direction:column; gap:.65rem; }
+#setupPiModal .automation-group.selected{ border-color:#628cbb; box-shadow:0 0 0 1px #628cbb; }
+#setupPiModal .integration-block.automation-group > summary{ display:grid; grid-template-columns:2.25rem minmax(0, 1fr) 2.25rem; }
+.automation-group-label{ display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); align-items:center; gap:.35rem; min-width:0; }
+.automation-group-name{ text-align:right; overflow-wrap:anywhere; }
+.automation-group-count{ text-align:left; }
+@media (max-width:700px){
+  #setupPiModal .integration-block.automation-group > summary{ grid-template-columns:2rem minmax(0, 1fr) 2rem; gap:.4rem; padding:.8rem .6rem; }
+  .automation-group-label{ font-size:clamp(.75rem, 3.6vw, .95rem); }
+}
+.automation-group-menu{ cursor:pointer; padding:.35rem .55rem; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; }
+#setupPiModal.mobile-settings .automation-group > summary::before{ display:block; }
+.automation-create-actions{ display:flex; gap:.65rem; margin-right:auto; }
+#automationChooser > .pane-footer{ flex-wrap:wrap; }
+.automation-group-actions{ display:flex; gap:.65rem; margin-left:auto; }
+#automationList .list-item{ cursor:default; }
+.automation-open{ flex:1; min-width:0; text-align:left; overflow-wrap:anywhere; border:0; background:transparent; color:inherit; padding:0; cursor:pointer; font:inherit; font-weight:600; }
+.automation-item-controls{ display:flex; align-items:center; gap:.5rem; margin-left:auto; }
+.automation-menu{ position:relative; }
+.automation-menu > summary{ cursor:pointer; list-style:none; padding:.35rem .55rem; border:1px solid var(--line); border-radius:6px; }
+.automation-menu > summary::-webkit-details-marker{ display:none; }
+.automation-menu-choices{ position:fixed; inset:auto; margin:0; padding:.4rem; min-width:9rem; background:var(--panel, #fff); border:1px solid var(--line); border-radius:6px; box-shadow:0 4px 12px #0002; }
+.automation-menu-choices:popover-open{ display:flex; flex-direction:column; gap:.2rem; }
+.automation-menu-choices button{ text-align:left; cursor:pointer; padding:.3rem .5rem; }
+#automationArrangeStatus{ padding:0 .75rem; }
 
 .modal .split > aside.panel{ background:#ecf5ee; border-color:#d6dfd8; }
 .modal .split > section.panel{ background:#fff; border-color:#d6dfd8; }
@@ -1624,3 +1649,23 @@ html.native-pi-window :is(.metric-container,.switch-metric-container) *::before,
 html.native-pi-window :is(.metric-container,.switch-metric-container) *::after{
   box-shadow:none!important;
 }
+
+.automation-library{ display:flex; flex-direction:column; gap:.75rem; flex:1; min-height:0; overflow:auto; padding:.85rem; }
+.library-filters{ display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:.65rem; }
+.library-browse-filters{ grid-template-columns:repeat(4, minmax(0, 1fr)); }
+@media (max-width:700px){ .library-browse-filters{ grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:450px){ .library-browse-filters{ grid-template-columns:minmax(0, 1fr); } }
+.library-field{ display:flex; flex-direction:column; gap:.3rem; min-width:0; }
+.library-field input, .library-field select{ width:100%; min-width:0; box-sizing:border-box; }
+.library-field.library-checkbox{ flex-direction:row; align-items:center; margin-bottom:.5rem; }
+.library-checkbox input{ width:auto; flex:0 0 auto; }
+.library-list{ display:flex; flex-direction:column; gap:.65rem; }
+.library-review{ display:flex; flex-direction:column; gap:.75rem; }
+.library-review-entry{ border:1px solid var(--line); border-radius:8px; padding:.75rem; min-width:0; }
+.library-review-entry > button{ margin-top:.6rem; }
+#setupPiModal .automation-library .pane-footer{ margin:0; flex-wrap:wrap; }
+.calendar-range{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:end; gap:.5rem; }
+.calendar-range > label{ min-width:0; margin:0; }
+.calendar-range input{ display:block; width:100%; min-width:0; margin-top:.2rem; }
+.library-field input, .library-field select{ padding:.4rem .5rem; border:1px solid var(--line); border-radius:6px; background:var(--panel, #fff); color:inherit; font:inherit; }
+.library-checkbox input{ padding:0; }

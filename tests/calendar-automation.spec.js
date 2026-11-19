@@ -17,6 +17,7 @@ async function openCalendarEditor(page, condition) {
   await page.getByRole('link', {name: 'Open General Settings'}).click();
   const modal = page.locator('#setupPiModal');
   await modal.getByRole('button', {name: 'Automations', exact: true}).click();
+  await modal.locator('.automation-group[data-group="Other"] > summary').click();
   await modal.getByText('Calendar notice', {exact: true}).click();
   return {modal, saves};
 }
@@ -85,7 +86,7 @@ for (const width of [1280, 390]) {
     const {modal, saves} = await openCalendarEditor(page, {type: 'calendar', calendar_kind: 'date_time', calendar_local: '2026-10-31T15:30', calendar_timezone: 'America/Denver'});
     const row = modal.locator('.cond.calendar');
     const kind = row.locator('.calendar-kind');
-    expect(await kind.locator('option').allTextContents()).toEqual(['Date/Time', 'BD Transitions', 'Lunar Events', 'Season']);
+    expect(await kind.locator('option').allTextContents()).toEqual(['Date/Time', 'BD Transitions', 'Lunar Events', 'Season', 'Stage Date Range']);
     const datetimeInput = row.locator('.calendar-datetime');
     await expect(datetimeInput).toHaveValue('2026-10-31T15:30');
     await expect(row).toContainText('America/Denver');

@@ -751,7 +751,7 @@ def register_switch_routes(
 
     @router.get("/advanced/automations", response_class=JSONResponse)
     async def api_list_advanced_automations(switch_id: str = Query(...)):
-        from .saiAutomationManager import AutomationManager
+        from .saiAutomationManager import AutomationManager, automation_group, automation_position, automation_groups
         def _parse_enabled(value) -> bool:
             if isinstance(value, str):
                 return value.strip().lower() not in {"0", "false", "off", "no", ""}
@@ -833,13 +833,55 @@ def register_switch_routes(
                     "enabled": enabled,
                     "script_json": script_json,
                     "legacy": str(rule_id) in legacy_rule_ids,
+                    "library_json": payload.get("library_json", ""),
+                    "group": automation_group(payload),
+                    "position": automation_position(payload),
                 })
 
-            return {"switch_id": switch_id, "items": items}
+            return {"switch_id": switch_id, "items": items, "groups": automation_groups(data)}
         except Exception as exc:
             printDM(f"/advanced/automations error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": "Unable to read Advanced automations."}, status_code=500)
 
+
+    @router.get("/advanced/automation-library", response_class=JSONResponse)
+    async def automation_library_catalog():
+        """Describe the read-only starter catalog and current destination groups."""
+        from .saiAutomationLibrary import catalog
+        from .saiAutomationManager import AutomationManager, automation_groups
+        try:
+            data = await asyncio.to_thread(AutomationManager("automation_settings").load, "__all__")
+            return {**catalog(), "groups": automation_groups(data)}
+        except Exception as exc:
+            printDM(f"Library catalog error: {exc}", location=MODULE)
+            return JSONResponse({"error": "Unable to load the automation library."}, status_code=500)
+
+    @router.post("/advanced/automation-library/import", response_class=JSONResponse)
+    async def import_automation_library(request: Request):
+        """Resolve and save one validated batch without activating its actors."""
+        from .saiAutomationLibrary import prepare_import
+        from .saiAutomationManager import AutomationManager
+        try:
+            raw = bytearray()
+            async for chunk in request.stream():
+                if len(raw) + len(chunk) > 131072:
+                    return JSONResponse({"error": "Library import is too large."}, status_code=413)
+                raw.extend(chunk)
+            payload = json.loads(raw)
+            timezone_name = str(settings.get_setting("Astral", "TIMEZONE", "") or settings.get_setting("Time", "TZ", "UTC") or "UTC")
+            planting_getter = getattr(services.data_logger, "get_biodynamic_plantings", None)
+            wants_planting = isinstance(payload, dict) and any(
+                isinstance(entry, dict) and entry.get("planting_id") for entry in (payload.get("entries") or [])
+            )
+            plantings = await asyncio.to_thread(planting_getter, raise_on_error=True) if planting_getter and wants_planting else []
+            rules = prepare_import(payload, timezone=timezone_name, plantings=plantings)
+            ids = await asyncio.to_thread(AutomationManager("automation_settings").import_library_rules, str(payload.get("group", "")), rules)
+            return {"ok": True, "rule_ids": ids}
+        except (ValueError, TypeError, KeyError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:
+            printDM(f"Library import error: {exc}", location=MODULE)
+            return JSONResponse({"error": "Unable to import library automations."}, status_code=500)
 
     @router.get("/automation-context", response_class=JSONResponse)
     async def automation_context():
@@ -1006,6 +1048,44 @@ def register_switch_routes(
         except Exception as exc:
             printDM(f"/advanced/automations/enable error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": "Failed to update automation enablement."}, status_code=500)
+
+
+    @router.post("/advanced/automations/groups", response_class=JSONResponse)
+    async def api_update_automation_group(
+        group: str = Form(...), choice: str = Form(...),
+    ):
+        """Persist the ordered group list and preserve rules on group removal."""
+        from .saiAutomationManager import AutomationManager
+        try:
+            mgr = AutomationManager("automation_settings")
+            await asyncio.to_thread(mgr.update_group, "__all__", group, choice)
+            return {"ok": True}
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:
+            printDM(f"/advanced/automations/groups error: {exc}", location="saiWebRoutes")
+            return JSONResponse({"error": "Unable to update automation groups."}, status_code=500)
+
+
+    @router.post("/advanced/automations/arrange", response_class=JSONResponse)
+    async def api_arrange_advanced_automation(
+        switch_id: str = Form(...),
+        rule_id: str = Form(...),
+        choice: str = Form(...),
+    ):
+        """Persist presentation grouping and order without activating a rule."""
+        from .saiAutomationManager import AutomationManager
+        try:
+            mgr = AutomationManager("automation_settings")
+            ok = await asyncio.to_thread(mgr.arrange_rule, switch_id, rule_id, choice)
+            if not ok:
+                return JSONResponse({"error": "Automation no longer exists."}, status_code=404)
+            return {"ok": True}
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:
+            printDM(f"/advanced/automations/arrange error: {exc}", location="saiWebRoutes")
+            return JSONResponse({"error": "Unable to organize automation."}, status_code=500)
 
 
     @router.post("/advanced/automations/delete", response_class=JSONResponse)
@@ -1209,9 +1289,21 @@ def register_switch_routes(
                     event = str(c.get("calendar_event", "all")).strip().lower()
                     choices = {"bd_transitions": {"all", "earth", "water", "air", "fire"},
                                "lunar_events": {"all", *LUNAR_PHASES},
-                               "season": {"all", *SEASON_EVENTS}, "date_time": {"all"}}
+                               "season": {"all", *SEASON_EVENTS}, "date_time": {"all"}, "date_range": {"all"}}
                     if kind not in choices or event not in choices[kind]:
                         return error_response("Invalid Calendar event selection.", status_code=400)
+                    if kind == "date_range":
+                        from .saiAutomationLibrary import normalize_stage_window
+                        from zoneinfo import ZoneInfo
+                        try:
+                            start, end = normalize_stage_window(c.get("calendar_start"), c.get("calendar_end"))
+                            if not start:
+                                raise ValueError("Date range requires both dates.")
+                            tz_name = str(c.get("calendar_timezone") or settings.get_setting("Time", "TZ", "UTC") or "UTC")
+                            ZoneInfo(tz_name)
+                        except (ValueError, KeyError, TypeError):
+                            return error_response("Invalid Calendar stage date range or timezone.", status_code=400)
+                        normalized_condition.update(calendar_start=start, calendar_end=end, calendar_timezone=tz_name)
                     if kind == "date_time":
                         tz_name = str(c.get("calendar_timezone") or settings.get_setting("Astral", "TIMEZONE", "")
                                       or settings.get_setting("Time", "TZ", "UTC") or "UTC")

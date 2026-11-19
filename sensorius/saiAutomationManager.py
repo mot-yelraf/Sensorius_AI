@@ -22,6 +22,7 @@ LEGACY_TRIGGERS_SUBDIR: str = "automations"
 TRIGGERS_FILENAME: str = "automations.toml"
 TMP_SUFFIX: str = ".tmp"
 META_IGNORED_LEGACY_IDS: str = "ignored_legacy_rule_ids"
+AUTOMATION_GROUPS = ("Indoor", "Outdoor", "Greenhouse", "Other")
 
 # Preferred top-level sections (kept stable for readability)
 SECTION_META: str = "Meta"
@@ -62,6 +63,30 @@ def _as_enabled(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() not in {"0", "false", "off", "no", ""}
     return bool(value)
+
+
+def automation_group(rule: dict) -> str:
+    """Return the display group, including the default for older rules."""
+    group = rule.get("group")
+    return group.strip() if isinstance(group, str) and group.strip() else "Other"
+
+
+def automation_position(rule: dict) -> int:
+    """Return a safe display position with unpositioned rules at the end."""
+    position = rule.get("position")
+    return position if type(position) is int and position >= 0 else 9007199254740991
+
+
+def automation_groups(data: dict) -> list[str]:
+    """Return persisted group order and include groups referenced by rules."""
+    configured = (data.get(SECTION_META) or {}).get("automation_groups")
+    groups = list(dict.fromkeys(
+        item.strip() for item in configured if isinstance(item, str) and item.strip()
+    )) if isinstance(configured, list) and configured else list(AUTOMATION_GROUPS)
+    for rule in (data.get(SECTION_ADV) or {}).values():
+        if isinstance(rule, dict) and automation_group(rule) not in groups:
+            groups.append(automation_group(rule))
+    return groups
 
 
 def _preserve_weather_rearm(script: dict, previous_rule: dict | None, enabled: bool) -> None:
@@ -586,6 +611,9 @@ class AutomationManager:
                 buf.write(f"version = {int(meta.get('version', 1))}\n")
                 notes = str(meta.get("notes", "Switch trigger configuration. Edit carefully."))
                 buf.write(f"{_toml_key('notes')} = {_toml_string(notes)}\n\n")
+                if "automation_groups" in meta:
+                    encoded = ", ".join(_toml_string(item) for item in self.groups_from_data(data))
+                    buf.write(f"automation_groups = [{encoded}]\n\n")
                 ignored_ids = sorted(self._ignored_legacy_rule_ids({SECTION_META: meta}))
                 if ignored_ids:
                     encoded = ", ".join(_toml_string(item) for item in ignored_ids)
@@ -609,8 +637,11 @@ class AutomationManager:
                             script_json = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
                         except Exception:
                             script_json = str(script_json)
+                    library = rule.get("library_json")
+                    library_field = f", library_json={_toml_string(str(library))}" if library else ""
                     buf.write(
-                        f"{_toml_key(rule_id)} = {{ enabled={_toml_bool(enabled)}, script_json={_toml_string(script_json)} }}\n"
+                        f"{_toml_key(rule_id)} = {{ enabled={_toml_bool(enabled)}, script_json={_toml_string(script_json)}, "
+                        f"group={_toml_string(automation_group(rule))}, position={automation_position(rule)}{library_field} }}\n"
                     )
                 buf.write("\n")
 
@@ -703,13 +734,140 @@ class AutomationManager:
                     incoming["_notification_revision"] = revision
                 script_json = json.dumps(incoming, separators=(",", ":"), ensure_ascii=False)
 
-            adv[rule_id] = {"enabled": bool(enabled), "script_json": script_json}
+            adv[rule_id] = {
+                "enabled": bool(enabled), "script_json": script_json,
+                "group": automation_group(previous_rule) if previous_rule else (
+                    "Other" if "Other" in self.groups_from_data(self.load(hostname))
+                    else self.groups_from_data(self.load(hostname))[0]
+                ),
+                "position": automation_position(previous_rule or {}),
+            }
+            if (previous_rule or {}).get("library_json"):
+                adv[rule_id]["library_json"] = previous_rule["library_json"]
             data[SECTION_ADV] = adv
             meta = data.get(SECTION_META, {}) or {}
             ignored = self._ignored_legacy_rule_ids(data)
             ignored.discard(str(rule_id))
             meta[META_IGNORED_LEGACY_IDS] = sorted(ignored)
             data[SECTION_META] = meta
+
+        self._atomic_update(hostname, _mutate)
+
+    def import_library_rules(self, group: str, prepared: list[dict]) -> list[str]:
+        """Atomically append a validated, disabled batch without replacing rules.
+
+        Deterministic IDs and a request digest make retrying the same import
+        idempotent, including after a user has edited or enabled an imported copy.
+        """
+        def _mutate(data: Dict[str, Any]) -> list[str]:
+            merged, _legacy_ids = self._merged_storage_data("__all__")
+            if group not in self.groups_from_data(merged):
+                raise ValueError("Choose a current Saved Automations group.")
+            existing = merged.get(SECTION_ADV) or {}
+            peers = sorted((key for key, rule in existing.items()
+                            if isinstance(rule, dict) and automation_group(rule) == group),
+                           key=lambda key: (automation_position(existing[key]), key))
+            if any(item["rule_id"] not in existing for item in prepared):
+                for position, key in enumerate(peers):
+                    data.setdefault(SECTION_ADV, {})[key] = {**existing[key], "position": position}
+            position = len(peers)
+            result = []
+            for item in prepared:
+                key = item["rule_id"]
+                if key in existing:
+                    try:
+                        previous = json.loads(existing[key].get("library_json", "{}"))
+                        incoming = json.loads(item["library_json"])
+                    except (ValueError, TypeError) as exc:
+                        raise ValueError("Import ID conflicts with an existing automation.") from exc
+                    if not previous.get("digest") or previous.get("digest") != incoming.get("digest"):
+                        raise ValueError("This import ID was already used for different selections.")
+                else:
+                    data.setdefault(SECTION_ADV, {})[key] = {
+                        **item, "enabled": False, "group": group, "position": position,
+                    }
+                    position += 1
+                result.append(key)
+            return result
+
+        return self._atomic_update("__all__", _mutate)
+
+    def arrange_rule(self, hostname: str, rule_id: str, choice: str) -> bool:
+        """Move a rule within its display group or append it to another group.
+
+        Group and position are presentation metadata; scripts and enablement
+        remain unchanged, so organizing rules does not activate their actors.
+        """
+        def _mutate(data: Dict[str, Any]) -> bool:
+            merged, _legacy_ids = self._merged_storage_data(hostname)
+            groups = self.groups_from_data(merged)
+            if choice not in ("Up", "Down", *groups):
+                raise ValueError("Invalid automation arrangement choice.")
+            rules = merged.get(SECTION_ADV) or {}
+            rule = rules.get(rule_id)
+            if not isinstance(rule, dict):
+                return False
+            group = automation_group(rule)
+            target = choice if choice in groups else group
+            ids = sorted(
+                (key for key, item in rules.items()
+                 if isinstance(item, dict) and automation_group(item) == target),
+                key=lambda key: (automation_position(rules[key]), key),
+            )
+            if choice in ("Up", "Down"):
+                index = ids.index(rule_id)
+                neighbor = index + (-1 if choice == "Up" else 1)
+                if not 0 <= neighbor < len(ids):
+                    return True
+                ids[index], ids[neighbor] = ids[neighbor], ids[index]
+            elif target != group:
+                ids.append(rule_id)
+            else:
+                return True
+            adv = data.setdefault(SECTION_ADV, {})
+            for position, key in enumerate(ids):
+                adv[key] = {**rules[key], "group": target, "position": position}
+            return True
+
+        return self._atomic_update(hostname, _mutate)
+
+    @staticmethod
+    def groups_from_data(data: dict) -> list[str]:
+        """Return ordered display groups, including groups used by older rules."""
+        return automation_groups(data)
+
+    def update_group(self, hostname: str, group: str, choice: str) -> None:
+        """Add, reorder, or remove a display group without deleting automations."""
+        group = group.strip()
+        if not group or len(group) > 80 or any(ord(char) < 32 for char in group):
+            raise ValueError("Enter a group name of 1 to 80 characters.")
+        if group.casefold() in {"up", "down"}:
+            raise ValueError("Up and Down are reserved menu choices.")
+
+        def _mutate(data: Dict[str, Any]) -> None:
+            merged, _legacy_ids = self._merged_storage_data(hostname)
+            groups = self.groups_from_data(merged)
+            if choice == "Add":
+                if any(item.casefold() == group.casefold() for item in groups):
+                    raise ValueError("A group with that name already exists.")
+                groups.append(group)
+            elif group not in groups:
+                raise ValueError("Group no longer exists.")
+            elif choice in {"Up", "Down"}:
+                index = groups.index(group)
+                neighbor = index + (-1 if choice == "Up" else 1)
+                if 0 <= neighbor < len(groups):
+                    groups[index], groups[neighbor] = groups[neighbor], groups[index]
+            elif choice == "Remove":
+                if len(groups) == 1:
+                    raise ValueError("Keep at least one automation group.")
+                if any(isinstance(rule, dict) and automation_group(rule) == group
+                       for rule in (merged.get(SECTION_ADV) or {}).values()):
+                    raise ValueError("Move all automations out of this group before removing it.")
+                groups.remove(group)
+            else:
+                raise ValueError("Invalid group action.")
+            data.setdefault(SECTION_META, {})["automation_groups"] = groups
 
         self._atomic_update(hostname, _mutate)
 

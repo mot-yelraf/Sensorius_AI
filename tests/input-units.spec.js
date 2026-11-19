@@ -30,6 +30,7 @@ for (const metric of ['Temperature', 'Temperature_F', 'Plant Temperature', 'Plan
     await page.getByRole('link', {name: 'Open General Settings'}).click();
     const modal = page.locator('#setupPiModal');
     await modal.getByRole('button', {name: 'Automations', exact: true}).click();
+    await modal.locator('.automation-group[data-group="Other"] > summary').click();
     await modal.getByText('Precision rule', {exact: true}).click();
     const values = modal.locator('.sensor-bottom input[type=number]');
     await expect(values.nth(0)).toBeDisabled();

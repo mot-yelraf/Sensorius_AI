@@ -39,6 +39,7 @@ const state = {
   payload: null,
   rangePayload: null,
   plantings: Array.isArray(initialPlantings) ? initialPlantings : [],
+  automationLinks: {},
   selectedDate: "",
   currentDate: "",
   followCurrentMonth: true,
@@ -321,8 +322,13 @@ function fillPlantingForm(planting) {
     const summary = editor.querySelector(":scope > summary");
     if (summary) summary.textContent = `Edit ${plantingDisplayName(planting)}`;
   }
-  for (const key of ["id", "name", "variety", "plant_type", "plant_part", "start_method", "start_date", "expected_harvest_date", "days_to_maturity", "location", "attributes"]) {
+  for (const key of ["id", "name", "variety", "plant_type", "plant_part", "start_method", "start_date", "expected_harvest_date", "days_to_maturity", "location", "attributes", "environment"]) {
     if (form.elements[key]) form.elements[key].value = planting[key] == null ? "" : String(planting[key]);
+  }
+  for (const stage of ["seedling", "immature", "mature", "harvest"]) {
+    for (const bound of ["start", "end"]) {
+      form.elements[`stage_${stage}_${bound}`].value = planting.stage_schedule?.[stage]?.[bound] || "";
+    }
   }
   form.scrollIntoView({ block: "nearest" });
 }
@@ -346,6 +352,7 @@ function renderPlantings() {
         <div>
           <strong>${esc(plantingDisplayName(planting))}</strong>
           <span>${esc(method)} ${esc(planting.start_date || "--")} | ${esc(harvest)} | ${esc(focus)}</span>
+          ${(state.automationLinks[planting.id] || []).length ? `<details class="planting-automation-links"><summary>Linked automations (${state.automationLinks[planting.id].length})</summary><ul>${state.automationLinks[planting.id].map(item => `<li>${esc(item.name)} — ${esc(item.group)} — ${item.enabled ? "Enabled" : "Disabled"}</li>`).join("")}</ul></details>` : ""}
         </div>
         <div class="planting-item-actions">
           <button type="button" data-edit-planting="${esc(planting.id)}">Edit</button>
@@ -1535,6 +1542,14 @@ document.getElementById("plantingForm").addEventListener("submit", async (ev) =>
   const form = ev.currentTarget;
   const status = document.getElementById("plantingStatus");
   const body = Object.fromEntries(new FormData(form).entries());
+  body.stage_schedule = {};
+  for (const stage of ["seedling", "immature", "mature", "harvest"]) {
+    const start = body[`stage_${stage}_start`];
+    const end = body[`stage_${stage}_end`];
+    delete body[`stage_${stage}_start`];
+    delete body[`stage_${stage}_end`];
+    if (start || end) body.stage_schedule[stage] = {start, end};
+  }
   status.textContent = "Saving planting.";
   try {
     const resp = await fetch("/api/biodynamic-calendar-app/planting", {
@@ -1790,3 +1805,28 @@ async function refreshCurrentStatus() {
 setInterval(() => { void refreshCurrentStatus(); }, STATUS_REFRESH_MS);
 
 loadCalendar("");
+
+async function loadPlantingAutomationLinks() {
+  try {
+    const response = await fetch("/advanced/automations?switch_id=__all__", {cache: "no-store"});
+    if (response.status === 404) return;
+    if (!response.ok) throw new Error("Linked automations unavailable");
+    const data = await response.json();
+    const links = {};
+    for (const item of data.items || []) {
+      let source;
+      let script;
+      try { source = JSON.parse(item.library_json || "{}"); script = JSON.parse(item.script_json || "{}"); }
+      catch { continue; }
+      if (!source.planting_id) continue;
+      (links[source.planting_id] ||= []).push({name: script.name || item.rule_id, group: item.group || "Other", enabled: item.enabled});
+    }
+    state.automationLinks = links;
+    renderPlantings();
+  } catch {
+    const status = document.getElementById("plantingAutomationStatus");
+    if (status) status.textContent = "Linked automations could not be loaded. Planting records remain available.";
+  }
+}
+loadPlantingAutomationLinks();
+window.addEventListener("focus", () => { void loadPlantingAutomationLinks(); });

@@ -367,7 +367,7 @@ def weather_climate() -> dict:
 
 
 @app.get("/pressure-gauges", response_class=HTMLResponse)
-def pressure_gauges(unit_system: str = "Metric", altitude: str = "1609.3", nodus_altitude: str = "1719.0") -> HTMLResponse:
+def pressure_gauges(unit_system: str = "Metric", altitude: str = "1609.3", nodus_altitude: str = "1719.0", corrected_device: str = "bme280") -> HTMLResponse:
     """Render raw and corrected pressure sensors together for browser checks."""
     from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config
 
@@ -384,7 +384,14 @@ def pressure_gauges(unit_system: str = "Metric", altitude: str = "1609.3", nodus
         expected_display_style_map={sid: {} for sid in values}, display_style="Gauge",
         pressure_altitude=altitude,
         pressure_sensor_context={
-            "corrected": {"device": "bme280", "altitude": 1609.3},
+            "corrected": {"device": corrected_device, "altitude": 1609.3},
             "nodus": {"device": "avpd", "altitude": nodus_altitude},
         },
     )))
+
+
+@app.get("/advanced/automation-library")
+def automation_library_catalog() -> dict:
+    """Expose the actual starter catalog without reading runtime settings."""
+    from sensorius.saiAutomationLibrary import catalog
+    return {**catalog(), "groups": ["Indoor", "Outdoor", "Greenhouse", "Other"]}
