@@ -1101,9 +1101,17 @@ canvas{
 }
 .automation-group-menu{ cursor:pointer; padding:.35rem .55rem; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; }
 #setupPiModal.mobile-settings .automation-group > summary::before{ display:block; }
-.automation-create-actions{ display:flex; gap:.65rem; margin-right:auto; }
-#automationChooser > .pane-footer{ flex-wrap:wrap; }
-.automation-group-actions{ display:flex; gap:.65rem; margin-left:auto; }
+.automation-create-actions, .automation-group-actions, .automation-transfer-actions{ display:flex; flex-wrap:wrap; gap:.65rem; }
+#setupPiModal #automationChooser > .automation-saved-footer{ display:grid; grid-template-columns:minmax(0, 1fr) auto minmax(0, 1fr); align-items:center; }
+.automation-create-actions{ justify-self:end; justify-content:flex-end; }
+.automation-group-actions{ justify-self:start; }
+.automation-transfer-actions{ justify-self:center; justify-content:center; }
+#setupPiModal .button.light-green{ background-color:#a8dca9; color:#17371c; }
+#setupPiModal .button.light-green:hover{ background-color:#91cc94; }
+@media (max-width:700px){
+  #setupPiModal #automationChooser > .automation-saved-footer{ grid-template-columns:minmax(0, 1fr); }
+  .automation-saved-footer > div{ justify-self:stretch; justify-content:center; }
+}
 #automationList .list-item{ cursor:default; }
 .automation-open{ flex:1; min-width:0; text-align:left; overflow-wrap:anywhere; border:0; background:transparent; color:inherit; padding:0; cursor:pointer; font:inherit; font-weight:600; }
 .automation-item-controls{ display:flex; align-items:center; gap:.5rem; margin-left:auto; }

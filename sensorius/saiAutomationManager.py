@@ -792,6 +792,52 @@ class AutomationManager:
 
         return self._atomic_update("__all__", _mutate)
 
+    def import_transfer_rules(self, document: dict, batch_id: str) -> list[str]:
+        """Atomically append validated disabled copies and merge display groups.
+
+        A batch ID is retained by the caller for retries. Existing rules are
+        never replaced, including copies edited or enabled after an earlier try.
+        """
+        from .saiAutomationTransfer import validate_document, transfer_rule_ids
+
+        document = validate_document(document)
+        batch_id = str(uuid.UUID(batch_id))
+        ordered = sorted(document["automations"], key=lambda rule: (document["groups"].index(rule["group"]), rule["position"], rule["id"]))
+        ids = transfer_rule_ids(batch_id, document)
+        incoming = [(ids[rule["id"]], rule) for rule in ordered]
+
+        def _mutate(data: Dict[str, Any]) -> list[str]:
+            merged, _legacy_ids = self._merged_storage_data("__all__")
+            groups = self.groups_from_data(merged)
+            mapping = {group.casefold(): group for group in groups}
+            for group in document["groups"]:
+                if group.casefold() not in mapping:
+                    groups.append(group)
+                    mapping[group.casefold()] = group
+            existing = merged.get(SECTION_ADV) or {}
+            adv = data.setdefault(SECTION_ADV, {})
+            next_positions = {}
+            for group in groups:
+                peers = sorted((key for key, rule in existing.items() if automation_group(rule) == group),
+                               key=lambda key: (automation_position(existing[key]), key))
+                for position, key in enumerate(peers):
+                    adv[key] = {**existing[key], "position": position}
+                next_positions[group] = len(peers)
+            for key, rule in incoming:
+                if key in existing:
+                    continue
+                group = mapping[rule["group"].casefold()]
+                script = {**rule["script"], "enabled": False}
+                adv[key] = {"enabled": False, "script_json": json.dumps(script, separators=(",", ":"), ensure_ascii=False),
+                            "group": group, "position": next_positions[group]}
+                if rule.get("library"):
+                    adv[key]["library_json"] = json.dumps(rule["library"], separators=(",", ":"), ensure_ascii=False)
+                next_positions[group] += 1
+            data.setdefault(SECTION_META, {})["automation_groups"] = groups
+            return [key for key, _rule in incoming]
+
+        return self._atomic_update("__all__", _mutate)
+
     def arrange_rule(self, hostname: str, rule_id: str, choice: str) -> bool:
         """Move a rule within its display group or append it to another group.
 

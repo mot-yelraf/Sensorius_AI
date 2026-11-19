@@ -833,6 +833,12 @@ Select a rule's name to edit it.
 
 - **Library** opens the crop starters described below. **New** opens a blank
   definition when you need a rule outside the Library catalog.
+- **Export** (light green) saves every saved automation and group as readable,
+  indented `.json`. **Import** (green) validates a selected export, shows a
+  confirmation count, then adds disabled copies without replacing existing rules.
+  Desktop windows use native Save/Open dialogs. Review sensor/switch bindings,
+  dates, and recipients before enabling imported copies. See
+  [export/import format and limits](automations.md#export-and-import-saved-automations).
 - **Add Group** asks for a unique name. Select a group header, then **Remove
   Group** to remove an empty group after confirmation. Move its rules elsewhere
   first; at least one group must remain.

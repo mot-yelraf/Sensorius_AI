@@ -15,7 +15,7 @@ import urllib.request
 
 from .saiWebServer import (
     DESKTOP_ICON_PATH,
-    NATIVE_WINDOW_BACKGROUND,
+    normalize_native_background,
     configure_linux_app_identity,
     set_macos_app_icon,
 )
@@ -55,7 +55,7 @@ def _window_geometry() -> dict[str, int]:
     }
 
 
-def _wait_for_health(base_url: str) -> bool:
+def _wait_for_health(base_url: str) -> str | None:
     health_url = base_url.rstrip("/") + "/healthz"
     retries = int(os.environ.get("SENSORIUS_GUI_RETRIES", "60"))
     delay_sec = float(os.environ.get("SENSORIUS_GUI_RETRY_DELAY", "2.0"))
@@ -64,11 +64,11 @@ def _wait_for_health(base_url: str) -> bool:
         try:
             with urllib.request.urlopen(health_url, timeout=3.0) as response:
                 if response.status == 200:
-                    return True
+                    return normalize_native_background(response.headers.get("X-Sensorius-Background"))
         except (OSError, urllib.error.URLError):
             pass
         time.sleep(delay_sec)
-    return False
+    return None
 
 
 def main() -> int:
@@ -88,7 +88,8 @@ def main() -> int:
         print(f"Sensorius GUI not started: pywebview import failed: {exc}")
         return 1
 
-    if not _wait_for_health(base_url):
+    startup_background = _wait_for_health(base_url)
+    if not startup_background:
         print(f"Sensorius GUI not started: {base_url.rstrip('/')} did not become ready.")
         return 1
 
@@ -103,8 +104,10 @@ def main() -> int:
         resizable=True,
         frameless=False,
         confirm_close=True,
-        background_color=NATIVE_WINDOW_BACKGROUND,
+        background_color=normalize_native_background(startup_background),
     )
+    from .saiAutomationFileDialogs import attach_automation_file_dialogs
+    attach_automation_file_dialogs(window, base_url)
     attach_native_scroll_profile(window)
     if sys.platform.startswith("linux"):
         webview.start(gui="gtk")

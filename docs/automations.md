@@ -523,3 +523,50 @@ cannot shorten or extend a running countdown. The UI still receives an epoch
 deadline and remaining seconds, recalculated from that elapsed-time clock.
 Timers remain runtime-only and send one Off attempt on expiry; the existing
 manual/Advanced automation ownership rules are unchanged.
+
+
+## Export And Import Saved Automations
+
+The Saved Automations footer places **Remove Group** and **Add Group** on the
+left, **Export** (light green) and **Import** (green) in the middle, and **Library**
+and **New** on the right. These sections stack on narrow screens.
+
+**Export** saves all saved Advanced automations and the ordered group list. The
+native desktop window uses the OS Save dialog. A web browser uses its file-save
+picker when available, otherwise its normal download flow. The default name is
+`automations.yy.doy.ver-hh-mm.json`: two-digit export year, three-digit export
+day of year, application patch number, and hour/minute in the hub timezone. The
+same filename format is used on every OS.
+
+The UTF-8 file is indented JSON so it can be read in a text editor. Conditions
+and actions appear as structured objects, rather than escaped `script_json`
+strings. It contains a `format` marker (`sensorius-automations`),
+`format_version` (`1`), full `application_version`, timezone-aware `exported_at`,
+`value_units` (`native`), `groups`, and `automations`. Quantities retain their
+stored native units, independent of the dashboard display units. Runtime-only
+annotations are excluded. Each automation includes its source ID, group,
+position, enabled state, script, and optional Library provenance.
+
+**Import** opens the OS Open dialog in the desktop window, or a browser file
+picker. A `.json` extension alone is insufficient: Sensorius validates UTF-8,
+JSON syntax, duplicate keys, the format marker and version, required structure,
+unique groups and source rule IDs, condition/action kinds, values, dates, and file
+limits. The file can contain up to 1,000 rules and 4 MiB; each rule can contain
+up to 100 conditions and 100 actions, within the editor’s 64 KiB script limit. Unknown format versions, malformed rules,
+and non-finite values are rejected before any settings are written.
+
+After validation, a confirmation shows the number of automations and groups.
+Confirming adds independent **disabled copies** in one atomic settings update;
+existing rules are never replaced. Groups with matching names (ignoring case)
+are reused; missing groups are appended, and imported rules preserve their
+relative order within each group. Empty groups are included. Canceling either
+the file picker or confirmation leaves settings untouched. If applying an import
+fails, select **Import** again to retry the same file without duplicating copies.
+Selecting the same file after a completed import intentionally creates another
+set of copies.
+
+Review sensor and switch bindings, dates, and email recipients before enabling
+imported rules, especially when moving a file between hubs. Sensor IDs, switch
+keys, and planting references are copied as saved; device configuration, planting
+records, credentials, and global Script toggles are not transferred. Plain JSON
+can be edited, but edits must still satisfy the supported schema on import.
