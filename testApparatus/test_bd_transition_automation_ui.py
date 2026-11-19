@@ -31,7 +31,7 @@ def test_calendar_condition_serializes_selectors_and_loads_legacy_bd_rules():
     ).read_text(encoding="utf-8")
 
     assert '<option value="calendar">Calendar</option>' in js_text
-    assert 'row.append(typeWrap, calendarKindWrap, calendarKind.value === "date_time" ? calendarDateWrap : calendarEventWrap, rem);' in js_text
+    assert 'row.append(typeWrap, calendarKindWrap, calendarKind.value === "date_range" ? calendarRangeWrap : calendarKind.value === "date_time" ? calendarDateWrap : calendarEventWrap, rem);' in js_text
     assert 'return { type:"calendar", calendar_kind:' in js_text
     assert 'cond?.type === "bd_transitions" ? "calendar"' in js_text
     assert 'opt.value = "none";' in js_text
