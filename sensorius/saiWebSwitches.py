@@ -878,7 +878,8 @@ def register_switch_routes(
             ids = await asyncio.to_thread(AutomationManager("automation_settings").import_library_rules, str(payload.get("group", "")), rules)
             return {"ok": True, "rule_ids": ids}
         except (ValueError, TypeError, KeyError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            printDM(f"Library import validation error: {exc}", location=MODULE)
+            return JSONResponse({"error": "Invalid library selection. Review sensors, units, targets, stage dates, planting links, and the destination group."}, status_code=400)
         except Exception as exc:
             printDM(f"Library import error: {exc}", location=MODULE)
             return JSONResponse({"error": "Unable to import library automations."}, status_code=500)
@@ -1061,7 +1062,8 @@ def register_switch_routes(
             await asyncio.to_thread(mgr.update_group, "__all__", group, choice)
             return {"ok": True}
         except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            printDM(f"Automation groups validation error: {exc}", location=MODULE)
+            return JSONResponse({"error": "Unable to change group. Use a unique name, remove only empty groups, and keep at least one group."}, status_code=400)
         except Exception as exc:
             printDM(f"/advanced/automations/groups error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": "Unable to update automation groups."}, status_code=500)
@@ -1082,7 +1084,8 @@ def register_switch_routes(
                 return JSONResponse({"error": "Automation no longer exists."}, status_code=404)
             return {"ok": True}
         except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            printDM(f"Automation arrange validation error: {exc}", location=MODULE)
+            return JSONResponse({"error": "Invalid arrangement. Choose Up, Down, or a current automation group."}, status_code=400)
         except Exception as exc:
             printDM(f"/advanced/automations/arrange error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": "Unable to organize automation."}, status_code=500)

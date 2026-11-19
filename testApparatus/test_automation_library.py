@@ -198,3 +198,46 @@ def test_explicit_stage_windows_drive_calendar_guidance_without_guessing():
     assert _planting_stage_for_day(planting, date(2026, 12, 9)) == 'seedling'
     assert _planting_stage_for_day(planting, date(2026, 12, 10)) == 'immature'
     assert _planting_stage_for_day(planting, date(2026, 12, 20)) == 'general'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation,exception_type", [
+    ("import", ValueError), ("import", TypeError), ("import", KeyError),
+    ("groups", ValueError), ("arrange", ValueError),
+])
+async def test_automation_api_validation_does_not_expose_internal_exceptions(tmp_path, monkeypatch, operation, exception_type):
+    from httpx import ASGITransport, AsyncClient
+    import sensorius.saiAutomationManager as managers
+    from testApparatus.test_nodus_settings_schema_writes import _build_app
+
+    app, *_ = await _build_app(tmp_path, monkeypatch)
+    private_detail = "/private/runtime/automation_settings/automations.toml: internal parser detail"
+
+    class Manager(AutomationManager):
+        def __init__(self, _base="automation_settings"):
+            super().__init__(str(tmp_path / "private-errors"))
+
+        def import_library_rules(self, *args):
+            raise exception_type(private_detail)
+
+        def update_group(self, *args):
+            raise exception_type(private_detail)
+
+        def arrange_rule(self, *args):
+            raise exception_type(private_detail)
+
+    monkeypatch.setattr(managers, "AutomationManager", Manager)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
+                           headers={"sec-fetch-site": "same-origin"}) as client:
+        if operation == "import":
+            response = await client.post("/advanced/automation-library/import", json=selection())
+            expected = "Invalid library selection. Review sensors, units, targets, stage dates, planting links, and the destination group."
+        elif operation == "groups":
+            response = await client.post("/advanced/automations/groups", data={"group": "Nursery", "choice": "Add"})
+            expected = "Unable to change group. Use a unique name, remove only empty groups, and keep at least one group."
+        else:
+            response = await client.post("/advanced/automations/arrange", data={"switch_id": "__all__", "rule_id": "a", "choice": "Indoor"})
+            expected = "Invalid arrangement. Choose Up, Down, or a current automation group."
+        assert response.status_code == 400
+        assert response.json() == {"error": expected}
+        assert private_detail not in response.text
