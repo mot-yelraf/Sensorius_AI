@@ -64,7 +64,7 @@
   .mobile-settings.mobile-settings-root .mobile-settings-content { display:none !important; }
   .mobile-settings .system-menu-brand { display:none !important; }
   .mobile-settings .mobile-settings-menu button,
-  .mobile-settings details:not(.mobile-settings-current):not(.mobile-settings-ancestor) > summary {
+  .mobile-settings details:not([data-mobile-inline]):not(.mobile-settings-current):not(.mobile-settings-ancestor) > summary {
     display:flex;
     align-items:center;
     justify-content:space-between;

@@ -56,7 +56,7 @@ GAUGE_SIZES = {
 def dashboard_sensor_label(sensor_id: str) -> str:
     """Shorten weather station UUIDs for display without changing canonical IDs."""
     label = str(sensor_id or "").upper()
-    match = re.fullmatch(r"(ECOWITT|ACURITE)-([A-Z0-9]+)", label)
+    match = re.fullmatch(r"(ECOWITT|ACURITE|DAVIS|OREGON)-([A-Z0-9]+)", label)
     return f"{match[1]}-{match[2][-6:]}" if match else label
 
 
@@ -1252,15 +1252,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "<link rel='icon' href='/ui_static/icons/sensorius-192.png' type='image/png' sizes='192x192'>"
     yield "<link rel='icon' href='/ui_static/favicon.svg' type='image/svg+xml'>"
     yield f"<link rel='apple-touch-icon' sizes='180x180' href='/ui_static/apple-touch-icon.png?v={APP_VERSION}'>"
-    yield "<script src='https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js'></script>"
-    yield "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>"
-    yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns'></script>"
-    yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0'></script>"
-    yield from render_graph_modal(switch_installed=switch_installed, gauge_config=gauge_config)
-    # global assets for templates
     yield f"<link rel='stylesheet' href='/ui_static/css/app.css?v={APP_VERSION}'>"
     yield f"<link rel='stylesheet' href='/ui_static/css/metric_tile_finishes.css?v={APP_VERSION}'>"
     yield f"<link rel='stylesheet' href='/ui_static/css/mobile_settings.css?v={APP_VERSION}'>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js' defer></script>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js' defer></script>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns' defer></script>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0' defer></script>"
+    # global assets for templates
     yield f"<script src='/ui_static/js/mobile_settings.js?v={APP_VERSION}'></script>"
     yield f"<script src='/ui_static/js/dashboard_order.js?v={APP_VERSION}' defer></script>"
     yield f"<script src='/ui_static/js/at_a_glance_order.js?v={APP_VERSION}' defer></script>"
@@ -1273,6 +1272,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"<script src='/ui_static/js/sensor_settings_modal.js?v={APP_VERSION}'></script>"
     body_style = f" style='{html_escape(dashboard_custom_theme_style)}'" if dashboard_custom_theme_style else ""
     yield f"</head><body class='dashboard-page dashboard-theme-{dashboard_background_class}'{body_style}>"
+    yield from render_graph_modal(switch_installed=switch_installed, gauge_config=gauge_config)
     yield (
       f"<div class='dashboard' "
       f"style='--container-width:{layout['container_width']};"

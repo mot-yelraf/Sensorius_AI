@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { pressureGaugeConfig } from '../ui_static/js/pressure_gauges.js';
 
 const base = { unit: 'hPa', min: 700, max: 1100 };
@@ -21,6 +22,19 @@ test('pressure ranges cover altitude bounds, fallback and corrected readings', (
   }
   expect(pressureGaugeConfig('Temperature', base, 1609.3)).toBe(base);
   expect(base).toEqual({ unit: 'hPa', min: 700, max: 1100 });
+});
+
+test('Davis barometric and absolute pressure use distinct ranges regardless of calibration altitude', () => {
+  for (const altitude of [undefined, 0, 1609.3]) {
+    for (const unit of ['hPa', 'inHg']) {
+      const config = {...base, unit};
+      const context = {device: 'davis_vue', altitude};
+      const barometric = pressureGaugeConfig('Baro-Pressure', config, 1609.3, context);
+      const absolute = pressureGaugeConfig('Absolute Baro-Pressure', config, 1609.3, context);
+      expect([barometric.min, barometric.max]).toEqual(unit === 'hPa' ? [960, 1070] : [28.4, 31.4]);
+      expect([absolute.min, absolute.max]).toEqual(unit === 'hPa' ? [780, 890] : [23.1, 26.2]);
+    }
+  }
 });
 
 for (const units of ['Metric', 'Imperial']) {
@@ -129,5 +143,28 @@ for (const renderer of ['GaugeJS', 'fallback']) {
       await expect(page.locator('#nodus_Baro-Pressure_val')).toContainText('30.66 inHg');
     }
     expect(new URL(page.url()).pathname).toBe('/pressure-gauges');
+  });
+}
+
+for (const units of ['Metric', 'Imperial']) {
+  test(`real Davis barometric dial spans its complete arc in ${units}`, async ({page}) => {
+    await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({
+      contentType: 'application/javascript',
+      body: route.request().url().includes('gaugeJS') ? readFileSync('node_modules/gaugeJS/dist/gauge.min.js') : '',
+    }));
+    await page.goto(`/pressure-gauges?unit_system=${units}&corrected_device=davis_vue`, {waitUntil: 'load'});
+    await expect.poll(() => page.evaluate(() => !!window['corrected_Baro-Pressure_gauge']?.getAngle)).toBe(true);
+    const dial = await page.evaluate(() => {
+      const g = window['corrected_Baro-Pressure_gauge'];
+      const labels = g.options.staticLabels.labels;
+      const zone = g.options.staticZones[0];
+      return {min: g.minValue, max: g.maxValue, labels, zone,
+        labelSweep: g.getAngle(labels.at(-1)) - g.getAngle(labels[0]),
+        fullSweep: (1 - g.options.angle * 2) * Math.PI};
+    });
+    expect([dial.min, dial.max]).toEqual(units === 'Metric' ? [960, 1070] : [28.4, 31.4]);
+    expect([dial.labels[0], dial.labels.at(-1)]).toEqual([dial.min, dial.max]);
+    expect([dial.zone.min, dial.zone.max]).toEqual([dial.min, dial.max]);
+    expect(dial.labelSweep).toBeCloseTo(dial.fullSweep, 8);
   });
 }

@@ -19,8 +19,9 @@
   - [Notifications](#notifications)
   - [Weather Forecast](#weather-forecast)
 - [Automations](#automations-pane)
-  - [Automation Definition](#automation-definition)
+  - [Automation Library](#automation-library)
   - [Your First Useful Setup](#your-first-useful-setup)
+  - [Edit Conditions And Actions](#automation-definition)
 - [Edit Locations](#edit-locations-pane)
 - [Add Device](#add-device-pane)
   - [Nodus Device](#nodus-device)
@@ -741,39 +742,200 @@ temperature reading and range use the selected system display units.
 
 ### Automations Pane
 
-![System automations pane](<../assets/screenshots/system-automations-list.png>)
+Open **General Settings > Automations** to create and manage rules for the whole
+hub. Start with **Library** to choose a garden-crop starter, supply your own
+sensor bindings and targets, and import a disabled rule. Open the saved copy to
+adjust its conditions and actions, then enable it when you are ready. No switch
+is required for dashboard alerts or email notifications.
 
-Open **General Settings > Automations**. Automations are configured globally
-from General Settings and are no longer edited from an individual switch's
-settings. The saved list shows every automation and whether it is enabled.
-This also allows a notification-only automation to run when no switch is
-installed.
+![Saved Automations with grouped, disabled Library copies and the Library button](<../assets/screenshots/system-automations-list.png>)
 
-For a first setup, follow [Monitor only or Monitor and control](#your-first-useful-setup).
-The walkthrough includes an alert test and recipes for ventilation, frost
-warnings, and soil-moisture irrigation, with plain-language previews to review
-before enabling a rule.
+<a id="automation-library"></a>
 
-Controls:
+#### Start With The Automation Library
 
-- **New**: opens a new automation definition.
-- **Saved Automations**: returns from the editor to the saved list.
-- **Remove**: asks for confirmation, then deletes the selected automation.
-- **Enable** in the editor: sets whether the rule is active. Options are **Yes** and **No**.
+![Automation Library top-level pane with crop filters and an expanded starter bundle](<../assets/screenshots/system-automation-library.png>)
 
-Automation rules are stored at
-`/Users/<user>/Sensorius/automation_settings/automations.toml` on macOS or
-`/home/<user>/Sensorius/automation_settings/automations.toml` on Linux. The
-General Settings editor loads all saved rules, sensor and metric choices, and
-the available actor directory. Rules found only at the former path show a
-**Legacy — open and Save** marker; opening and saving one moves that individual
-rule to the new path.
+The Library supplies editable starting points, not growing prescriptions. It
+contains twelve illustrative crop profiles across the environment and crop-type
+combinations. You choose the sensor, thresholds, hysteresis, and dates; the
+Library does not choose safe targets or stage durations for your plants.
+
+1. Select **Library** beside **New**.
+2. Filter by **Environment** (**Indoor**, **Outdoor**, or **Greenhouse**),
+   **Crop type** (**Root**, **Leaf**, **Flower**, or **Fruit**), **Crop**, and
+   **Stage** (**Seedling**, **Immature**, **Mature**, or **Ready to Harvest**).
+   Use the corresponding **All** choice to broaden a filter.
+3. Expand a crop/stage bundle. Select individual starters or **Select bundle**
+   for the whole bundle. Your selections remain checked as you change filters,
+   so you can collect rules for several crops or stages before reviewing them.
+4. Select **Review Selected**. Up to 100 rules can be imported together.
+
+Each bundle offers low and high alerts for **Temperature**, **Relative humidity**,
+**VPD**, and **Soil moisture**, plus **Favorable BD tending period** and
+**Stage start reminder**. Choose only the rules for which you have suitable
+sensors or calendar data. Every imported action initially uses **Alert**, which
+shows a dashboard notification; importing does not operate equipment or send email.
+
+##### Bind Sensors And Review Your Selection
+
+![Library review showing the destination group, sensor binding, dates, threshold, and hysteresis](<../assets/screenshots/system-automation-library-review.png>)
+
+In **Review Selected**, complete the following before **Import Selected**:
+
+- **Destination group**: choose an existing Saved Automations group. If you need
+  a new group, create it in Saved Automations before returning to the Library.
+- **Planting name** and **Variety (optional)**: identify the plants this copy
+  serves. Saved names combine that identity, the stage, and the starter title.
+- **Shared sensor bindings**: select one compatible sensor/metric for all
+  selected alerts using that measurement, such as temperature. You can then
+  override **Sensor / metric** on individual entries to use another sensor.
+- **Threshold** and **Hysteresis (same units)**: enter your own values for each
+  sensor alert. Read the displayed units. Temperature entries follow the
+  selected display units and are converted to the sensor's native units when
+  imported. Changing a sensor binding clears its threshold and resets hysteresis;
+  enter both again for the new units and sensor.
+- **Stage start** and **Stage end (exclusive)**: optionally restrict an unlinked
+  sensor or BD alert to a date window. Enter both dates, with the end after the
+  start. The window includes the start date and excludes the end date in the
+  hub timezone. Blank dates leave an unlinked alert applicable whenever enabled.
+- **BD Calendar planting**: optionally link an existing, compatible planting.
+  Set its environment and **Automation stage windows** in the Calendar planting
+  editor first. The Library copies the selected stage's dates and makes those
+  date fields read-only during review. Edit the planting to change linked dates.
+- **Remove selection** drops an unwanted starter; **Back to Library** returns
+  to browsing so you can change the selection.
+
+A linked planting must match the crop classification and environment and have a
+valid window for the selected stage. **Stage start reminder** always requires a
+window; it becomes a one-time Calendar Date/Time event at the stage's start.
+**Favorable BD tending period** watches transitions into the selected Root, Leaf,
+Flower, or Fruit period and uses the hub's configured calendar location. When a
+window is supplied, sensor and BD alerts are limited to that window.
+
+Select **Import Selected** to save the selection together as **disabled** rules.
+Existing rules remain in place. If an import fails, review the displayed error
+and retry the unchanged selection; retrying the same import does not create
+duplicate copies. The success message reports the number imported.
+
+Imported rules are independent copies. Later Library catalog updates or changes
+to planting dates do not rewrite them. Open the saved rules to review new dates
+or targets yourself. Stage dates do not enable rules or replace rules from an
+earlier stage. The Calendar planting shows its linked saved rules and their
+enabled state, which helps you find the copies to review.
+
+#### Organize Your Saved Automations
+
+**Saved Automations** starts with **Indoor**, **Outdoor**, **Greenhouse**, and
+**Other** groups. Each header shows its automation count; groups start collapsed.
+Expand a header to see its rules and their **Enabled** or **Disabled** state.
+Select a rule's name to edit it.
+
+- **Library** opens the crop starters described below. **New** opens a blank
+  definition when you need a rule outside the Library catalog.
+- **Add Group** asks for a unique name. Select a group header, then **Remove
+  Group** to remove an empty group after confirmation. Move its rules elsewhere
+  first; at least one group must remain.
+- The menu beside a group header offers **Up** and **Down** to reorder groups.
+  The menu beside a rule's state offers **Up**, **Down**, and the current group
+  names to reorder that rule or move it to another group.
+- **Saved Automations** returns from the editor or Library to this list.
+  **Remove** in the editor asks for confirmation before deleting the open rule.
+- **Duplicate** in the editor copies the saved conditions and actions into an
+  unnamed draft with **Enable: No**. Give it a new name and review its sensors,
+  dates, and actors before saving it as a separate rule.
+
+Grouping and order are saved across reloads. They organize the list without
+changing which rules run or their evaluation priority. Older rules appear in
+**Other** by default; a new blank rule uses **Other** when available, otherwise
+the first remaining group.
+
+<a id="your-first-useful-setup"></a>
+
+#### Your First Useful Setup
+
+Start with monitoring, then add control if you have a suitable switch. The
+numbers below explain behavior; choose targets for your own equipment and plants.
+
+##### Confirm The Location And Fresh Readings
+
+1. Add your device through [Add Device](#add-device-pane) if needed. Under
+   **General Settings > Edit Locations**, name its place, such as **Greenhouse
+   1** or **West Bed**. For control, assign the associated switch to that location.
+2. Select the location on the dashboard. Check the intended metric, units, and
+   whether its value is plausible. In **Sensorius Graphum**, inspect the latest
+   timestamp across a normal reporting interval to confirm new readings arrive.
+   For network devices, **Sensor Info** also reports packet timing and counts
+   where supported. A steady reading can be fresh; a visible old value can be stale.
+3. For email, configure **General Settings > Notifications** and use **Send Test
+   Email** first. You can use dashboard **Alert** actions without configuring email.
+
+##### Import And Test A Monitoring Rule
+
+1. Open **Automations > Library** and select your environment, crop, and stage.
+   Choose **Temperature high alert**, then **Review Selected**.
+2. Pick the destination group, enter a recognizable planting name, and bind the
+   temperature sensor. For a temporary test, enter a threshold just below the
+   fresh reading and **Hysteresis: 0**. For example, if it reads 22°C, enter
+   21°C; if it reads 72°F, enter 71°F. Leave dates blank for this unlinked test.
+3. Select **Import Selected**, expand the destination group, and open the new
+   disabled rule. Confirm the sensor, comparison, threshold, and **Alert** actor.
+   For email, choose **Notify** and enter **To**; add an action if you want both.
+4. Read it back: **"When this sensor's temperature exceeds my test threshold,
+   show an alert (or email me). Do not operate a switch."** Set **Enable: Yes**
+   and select **Save**. Keep the dashboard open to see an Alert and wait for the
+   next evaluation. Confirm that the message identifies the expected sensor.
+5. Set **Enable: No** and save after the test. Replace the temporary threshold
+   with your real target and review any stage dates before enabling it again.
+
+For frost monitoring, follow the same path with **Temperature low alert**. A
+threshold of 2°C (35.6°F) and hysteresis of zero means **"Warn when this sensor
+is below 2°C (35.6°F)."** A Notify action sends a **CLEARED** email when the
+condition stops matching. Verify delivery with a temporary threshold before
+relying on the real frost target. Dashboard alerts require an open dashboard
+to be seen; Notify uses the configured email service.
+
+##### Adapt A Library Alert To Operate Equipment
+
+With the imported rule disabled, test the intended switch channel manually with
+a harmless load and verify which equipment it operates. For the On examples
+below, finish the manual test with the equipment **Off**. Open the saved Library
+copy, then change its **Actors** and conditions as needed.
+
+**Ventilation:** start with **Temperature high alert**. Set `>`, a threshold of
+28°C (82.4°F), and hysteresis of 1°C (1.8°F). Replace Alert with the ventilation
+fan channel, **Set State: On**, **Restore Action: To previous state**, and
+**Delay Action (secs): 0**. This means **"Turn the fan On above 29°C (84.2°F),
+keep it On until temperature reaches 27°C (80.6°F) or lower, then restore Off."**
+Keep or remove any stage date condition deliberately. Save disabled, review,
+then enable and observe the fan's reported state and switch events.
+
+**Irrigation:** start with **Soil moisture low alert** and a calibrated metric
+where lower percentages mean drier soil. Set `<`, **Threshold: 30**, and
+**Hysteresis: 5** percentage points. Add **Time of Day** in the same condition
+group, such as 06:00 to 06:10 on your chosen days. Select the pump or valve,
+**Set State: On**, **Restore Action: To previous state**, and zero delay. This
+means **"During the watering window, turn irrigation On below 25%; restore Off
+at 35% or when the window ends, whichever happens first."** Other soil scales
+need their own units, comparison direction, and targets. Save disabled, verify
+the channel and dates, then enable for a short observed trial and confirm Off
+at the end.
+
+All actions share the same conditions. If you retain Alert or add Notify beside
+a switch action, they respond to that rule's full condition result. Use **New**
+for a completely custom rule, or **Duplicate** when a saved copy is a better
+starting point than the Library.
 
 <a id="automation-definition"></a>
 
-#### Automation Definition
+#### Edit Conditions And Actions
 
-![System automation definition pane](<../assets/screenshots/system-automation-definition.png>)
+![Saved Library rule in the automation editor with a stage window and sensor threshold](<../assets/screenshots/system-automation-definition.png>)
+
+Library copies and blank **New** rules use the same editor. A starter does not
+limit what you can change: edit or remove its rows, add conditions and actions,
+change the target sensor or switch, or choose another notification method. Keep
+**Enable: No** while making and testing changes.
 
 Top-level fields:
 
@@ -789,9 +951,17 @@ Condition **Type** options:
 - **Time of Day**: active only inside a daily time window.
 - **Timer**: active for a repeated duration, such as 5 minutes every hour.
 - **Astral**: uses sunrise or sunset timing from Astral location.
-- **Calendar**: triggers at a biodynamic, lunar, seasonal, or selected date/time event.
+- **Calendar**: selects a one-time date/time, BD transition, lunar or seasonal event, or an active stage date range.
 - **Severe Weather**: active NWS warnings and watches at the Astral location.
+- **System Status**: checks disk space, database write failures, sensor availability, or MQTT connectivity.
 - **Or**: separates groups of conditions. Conditions within a group are AND; groups separated by OR are OR.
+
+Conditions next to one another are AND: all must match. Insert **Or** to start
+another group; any complete group can satisfy the rule. For example, a stage
+window AND dry soil AND a watering time window confines irrigation to all three.
+If you add an OR branch, repeat the date or time limits there if they must also
+apply to that branch. Grouping rules in Saved Automations does not combine their
+conditions or coordinate their switch actions.
 
 ##### Sensor Conditions
 
@@ -800,6 +970,10 @@ Condition **Type** options:
 - **Operator**: comparison operator. Options are `>`, `<`, `==`, and `!=`.
 - **Threshold**: numeric value used by the comparison.
 - **Hysteresis**: buffer around the threshold to reduce rapid on/off cycling.
+  For `>`, a threshold of 28 with hysteresis 1 activates above 29 and clears at
+  27 or below; for `<`, a threshold of 30 with hysteresis 5 activates below 25
+  and clears at 35 or above. Enter hysteresis as a difference in the displayed
+  units, not an absolute temperature. Use zero when you want the direct comparison.
 
 ##### Time-of-Day Conditions
 
@@ -821,14 +995,19 @@ Condition **Type** options:
 ##### Calendar Conditions
 
 Select **Calendar**, then choose **Date/Time**, **BD Transitions**,
-**Lunar Events**, or **Season** in the selector to its right.
-A third control selects the event or scheduled date/time:
+**Lunar Events**, **Season**, or **Stage Date Range** in the selector to its right.
+The remaining controls select the event, scheduled date/time, or stage dates:
 
 - **Date/Time**: select a one-time date and time in the timezone shown above
   the field. This produces a generic Sensorius Calendar alert or event email.
   It needs no sensor, location, or ephemeris data. Nonexistent or repeated
   daylight-saving times are rejected; choose another time. A past event is not
   replayed when Sensorius starts.
+- **Stage Date Range**: enter **Stage start** and **Stage end (exclusive)**.
+  Both dates are required; the start must precede the end. This is an active
+  window in the rule's timezone, not a one-time reminder. Library sensor and BD
+  starters include it when you supply a stage window. You can edit or remove it
+  in the saved copy without changing the Calendar planting.
 - **BD Transitions**: **All**, **Earth/Root**, **Water/Leaf**, **Air/Flower**, or
   **Fire/Fruit**. The selection refers to the incoming element and plant part.
 - **Lunar Events**: **All** or one of **New Moon**, **Waxing Crescent**,
@@ -845,18 +1024,19 @@ A third control selects the event or scheduled date/time:
   omitted where no twelve-hour crossing occurs. See [Calendar behavior](automations.md)
   for exact dates and conventions.
 
-Calendar conditions have no offsets. They trigger once when the event occurs,
+Calendar conditions have no offsets. Event conditions trigger once when the event occurs,
 at the next automation evaluation. Lunar events use calculated phase milestone
 instants; crescent and gibbous milestones are halfway between the main quarter
-phases. Resolve the Astral location/timezone and enable local calendar ephemeris
-data first. Startup establishes a baseline without replaying old events.
+phases. For calculated BD, lunar, and seasonal events, resolve the Astral location/timezone
+and enable local calendar ephemeris data first. Date/Time and Stage Date Range
+do not require those astronomical data. Startup establishes a baseline without replaying old events.
 
 Choose **Alert** for the existing persistent dashboard notification style, or
 **Notify** for an event email. BD messages show the transition time and From/To
 descriptions; BD alerts retain their established colors. Lunar event messages
 also include phase details, illumination, local location and time,
-moonrise/moonset, and sunrise/sunset. Calendar Notify sends one event email with no
-CLEARED follow-up. Lunar emails also embed a Lunar Calendar PNG showing the
+moonrise/moonset, and sunrise/sunset. Event-based Calendar Notify sends one event email with no
+CLEARED follow-up; Stage Date Range is a window condition rather than an event. Lunar emails also embed a Lunar Calendar PNG showing the
 phase, surrounding phase dates, and local Sun/Moon times. The graphic uses
 **Local View**, orienting the illuminated edge and lunar surface for your configured
 location at each phase's event time. The full report remains available as plain
@@ -864,9 +1044,27 @@ text. Older BD Transitions rules open as Calendar →
 BD Transitions → All. See [Calendar behavior](automations.md) for timing and
 compatibility details.
 
+##### Severe Weather And System Status Conditions
+
+**Severe Weather** matches active NWS warnings and watches for the Astral
+location. Check that location and the [Severe Weather](#severe-weather-us-nws)
+setup before using it; this condition has no additional per-row selectors.
+
+For **System Status**, choose:
+
+- **Low disk space** and **Free space below (GiB)**.
+- **Database write errors** and the number of **Consecutive failures**.
+- **Sensor offline** and **Offline longer than (minutes)**, with a specific
+  available MQTT sensor or **All**.
+- **MQTT disconnected** and **Offline longer than (minutes)**, with a specific
+  available MQTT device or **All**.
+
+Use Alert or Notify to surface these conditions. They can be combined with the
+same AND/OR logic as other conditions.
+
 ##### Actions
 
-- **Actors**: action target. Switch entries are shown as `<switch_id>:<switch_label>` and use the stable channel ID behind the scenes. When email notifications are enabled, **Notify** is also available.
+- **Actors**: **Alert** displays a dashboard notification without operating a switch. Other choices select the action target. Switch entries are shown as `<switch_id>:<switch_label>` and use the stable channel ID behind the scenes. When email notifications are enabled, **Notify** is also available.
 - **Set State**: shown for a switch actor; selects **On** or **Off**.
 - **Restore Action**: shown for a switch actor. **To previous state** returns the switch to its previous state when the rule is no longer true. **Leave at set state** leaves the switch where the action put it.
 - **Delay Action (secs)**: shown for a switch actor; waits 0 to 60 seconds after the rule becomes true before applying the action.
@@ -894,137 +1092,9 @@ threshold.
 
 If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
 
-<!-- pdf-keep-together:start -->
-<a id="your-first-useful-setup"></a>
-
-#### Your First Useful Setup
-
-Choose one path through this walkthrough:
-
-- **Monitor only**: name a place, confirm a fresh sensor reading, and receive
-  an alert. No switch is required.
-- **Monitor and control**: complete the monitoring steps, then use a sensor
-  reading to operate a fan, pump, or valve.
-
-These steps use the existing settings and [automation editor](#automations-pane).
-The recipe names below are examples you enter as **Automation Name**. Read each
-plain-language preview before setting **Enable** to **Yes**.
-<!-- pdf-keep-together:end -->
-
-##### Name Your Location And Confirm A Reading
-
-1. If the sensor is not on the dashboard yet, add it through
-   [General Settings > Add Device](#add-device-pane), using the instructions for
-   your device type.
-2. Open **General Settings > Edit Locations**. Give the sensor a practical
-   location such as **Greenhouse 1** or **West Bed**, then select **Save**.
-   For control, assign the associated switch to the same location. This is the
-   device's location, separate from the community name and Astral coordinates.
-3. Return to the dashboard and select that location in the **Location Tile**.
-   Find the sensor and the metric you plan to use, such as temperature or soil
-   moisture. Check its units and whether its value is plausible.
-4. Open the metric in **Sensorius Graphum** and inspect the latest point's
-   timestamp across a normal reporting interval to confirm that new readings
-   are arriving. For network devices, also open **Sensor Settings > Sensor
-   Info** and check **Last packet received** and **Data packets received**,
-   where reported. A steady value can be fresh; an old value still visible on
-   a tile does not by itself prove that the device is reporting.
-
-##### Monitor Only: Test Your First Alert
-
-1. Open **General Settings > Automations > New**. Name the automation
-   **Greenhouse alert test**, and leave **Enable** at **No** while editing.
-2. Add a **Sensor** condition. Pick your sensor and its temperature metric,
-   choose `>`, and set **Hysteresis** to `0` for this temporary test. Set
-   **Threshold** just below the fresh reading. For example, if it reads
-   22°C, enter 21°C; if it reads 72°F, enter 71°F.
-3. Choose **Alert** under **Actors**. This displays a dashboard notification.
-   For email, configure **General Settings > Notifications**, use **Send Test
-   Email** to confirm delivery, then choose **Notify** and enter **To** instead.
-4. Review the rule in plain language: **“When Greenhouse 1's selected
-   temperature is above 21°C, show a dashboard alert. Do not operate a switch.”**
-   Substitute your own sensor, units, threshold, and delivery method.
-5. Select **Save** with **Enable: No** to keep a disabled draft. When ready,
-   set **Enable: Yes** and select **Save**. Keep the dashboard open for an
-   **Alert**, and wait for the next automation evaluation. Confirm that the
-   message identifies the expected location, metric, and reading.
-6. Disable and save the test rule. Remove it, or replace the test threshold
-   with the threshold you actually want to monitor before enabling it again.
-
-For a useful ongoing alert, follow **Warn about frost** below. A dashboard
-**Alert** requires an open dashboard to see the notification; **Notify** sends
-email through the configured notification service.
-
-##### Monitor And Control: Choose A Recipe
-
-First complete the location, fresh-reading, and alert checks above. With the
-automation disabled, test the intended switch channel manually and confirm
-that it operates the expected equipment. End the test with the fan, pump, or
-valve **Off**. For a first trial, use a harmless test load.
-
-For each recipe, open **General Settings > Automations > New**, leave
-**Enable: No**, and enter the example name. Pick your own sensor, metric,
-switch channel where needed, and thresholds. The numbers below illustrate the
-rule behavior; choose values appropriate to your installation. Temperature
-fields follow your selected Metric/Imperial display units.
-
-###### Ventilate When Hot
-
-1. Add a **Sensor** condition for the greenhouse temperature. Choose operator
-   `>`, **Threshold: 28°C** (82.4°F), and **Hysteresis: 1°C** (1.8°F).
-2. Under **Actors**, select the ventilation fan's switch channel. Set
-   **Set State: On**, **Restore Action: To previous state**, and
-   **Delay Action (secs): 0**.
-3. Preview: **“When Greenhouse 1 temperature rises above 29°C (84.2°F), turn
-   the ventilation fan On. Keep it On until temperature reaches 27°C (80.6°F)
-   or lower, then restore Off.”** Hysteresis puts the turn-on and turn-off
-   points on either side of the threshold.
-4. Save the disabled draft. Check the channel and preview, then enable and
-   save it. Observe the fan's reported state and its switch events as the
-   temperature crosses the two limits.
-
-###### Warn About Frost
-
-This recipe works on either path and needs no switch.
-
-1. Add a **Sensor** condition using the temperature sensor at the place you
-   want to protect, such as **West Bed**. Choose `<`, **Threshold: 2°C**
-   (35.6°F), and **Hysteresis: 0**.
-2. Choose **Alert** for a dashboard warning, or **Notify** and a **To** recipient
-   for email. Add another action if you want both.
-3. Preview: **“When West Bed temperature is below 2°C (35.6°F), warn me.
-   Do not operate a switch.”** A Notify action also sends a **CLEARED** email
-   when the condition stops matching.
-4. Save the disabled draft, review the sensor and delivery choice, then enable
-   and save it. Use the temporary-threshold procedure above to verify delivery
-   before relying on the real frost threshold.
-
-<!-- pdf-keep-together:start -->
-###### Water When Soil Is Dry
-
-1. Select a calibrated soil-moisture metric. Check its scale and direction:
-   this example assumes a percentage where **lower means drier**. Use the
-   metric's native units and an appropriate comparison for other sensors.
-2. Add a **Sensor** condition with `<`, **Threshold: 30**, and
-   **Hysteresis: 5** percentage points.
-3. Add a **Time of Day** condition in the same group, for example **Start
-   Time: 06:00**, **Stop Time: 06:10**, with your chosen days. Both conditions
-   must match. This confines watering to that window while Sensorius is
-   controlling the switch.
-4. Under **Actors**, select the irrigation pump or valve channel. Choose
-   **Set State: On**, **Restore Action: To previous state**, and
-   **Delay Action (secs): 0**.
-5. Preview: **“On the selected days between 06:00 and 06:10, turn West Bed
-   irrigation On when soil moisture falls below 25%. Restore Off when moisture
-   reaches 35% or when the watering window ends, whichever happens first.”**
-6. Save the disabled draft. Verify the sensor, channel, scale, and preview,
-   then enable and save it. Observe a short watering trial and confirm the
-   reported Off state and switch event at the end.
-<!-- pdf-keep-together:end -->
-
 ##### Before You Leave A Control Rule Enabled
 
-For the On recipes above, **To previous state** provides the return to Off.
+For the On examples above, **To previous state** provides the return to Off.
 Saving an enabled rule, or enabling a disabled rule with this restore setting,
 first prepares the switch at the opposite state: Off for an On action. That
 preparation operates the switch and must be confirmed by the device. If the
@@ -1038,7 +1108,16 @@ saved Off restoration remains pending until Nodus reports Off. It does not
 need to observe the exact end-of-window transition. A time window is not an
 independent Nodus shutdown timer, and missed one-time Calendar events are not
 replayed. **Leave at set state** would deliberately leave the switch On when
-the condition ends, so it does not provide the return to Off in these recipes.
+the condition ends, so it does not provide the return to Off in these examples.
+
+##### Where Rules Are Saved
+
+Automation rules are stored at
+`/Users/<user>/Sensorius/automation_settings/automations.toml` on macOS or
+`/home/<user>/Sensorius/automation_settings/automations.toml` on Linux. Use the
+settings editor to change them. Rules found only in the former location show a
+**Legacy - open and Save** marker; saving migrates that individual rule. See
+[System Automations](automations.md) for persistence and compatibility details.
 
 <a id="edit-locations-pane"></a>
 
@@ -1949,6 +2028,8 @@ Integrated calendar fields and controls:
   - **Location**: bed, greenhouse, field, tray, or other practical planting location.
   - **Plant Type**: descriptive crop class, such as fruiting vegetable.
   - **Attributes**: free-form notes for spacing, succession, hardening, trellis, harvest window, or other crop details.
+  - **Automation stage windows**: optional environment and start/end dates for Seedling, Immature, Mature, and Ready to Harvest. Windows must not overlap; end dates are exclusive. Library imports copy these dates into disabled starting-point rules. Later changes do not rewrite existing automations.
+  - **Linked automations**: shows saved library imports associated with this planting, including their group and enabled state.
   - **Save Planting**: stores or updates the planting record.
   - **Clear**: clears the planting form.
   - **Edit / Delete** in the planting list: updates or removes an existing planting record.

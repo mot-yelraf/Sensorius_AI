@@ -83,6 +83,17 @@ cd platform_installers\generated\<version>\windows-x64
 
 Set `$env:WINDOWS_SIGNTOOL_ARGS` when Authenticode signing is configured.
 
+## License and source distribution
+
+Sensorius is distributed under [GPLv3 only](../LICENSE) (`GPL-3.0-only`).
+Redistributed installers must include the license and preserve applicable
+third-party notices. For compiled or frozen GPLv3-covered application code,
+provide complete Corresponding Source, including the build and installation
+scripts, using a method permitted by section 6 of the license. Identify the
+exact source revision used for each release and provide instructions for
+obtaining its source alongside the binary download. Generating an installer
+does not by itself fulfill the source-distribution requirements.
+
 ## Installation logs
 
 Each generated installer writes a small, append-only Sensorius support log:

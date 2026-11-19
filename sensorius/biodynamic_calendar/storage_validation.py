@@ -120,7 +120,32 @@ def _normalize_planting(raw: dict[str, object], *, fallback_id: str = "") -> tup
     planting_id = _short_text(raw.get("id"), limit=80) or fallback_id or f"planting-{uuid4().hex[:12]}"
     harvest_window_days = _safe_int(raw.get("harvest_window_days"), minimum=0, maximum=90)
 
+    environment = _short_text(raw.get("environment"), limit=20)
+    if environment and environment not in {"Indoor", "Outdoor", "Greenhouse"}:
+        return None, "Choose Indoor, Outdoor, or Greenhouse."
+    from ..saiAutomationLibrary import STAGES, normalize_stage_window
+    schedule = raw.get("stage_schedule") or {}
+    if not isinstance(schedule, dict) or any(key not in STAGES for key in schedule):
+        return None, "Invalid planting stage schedule."
+    windows = {}
+    previous_end = ""
+    for stage in STAGES:
+        window = schedule.get(stage) or {}
+        if not isinstance(window, dict):
+            return None, "Invalid stage window."
+        try:
+            first, last = normalize_stage_window(window.get("start"), window.get("end"))
+        except ValueError as exc:
+            return None, str(exc)
+        if first:
+            if first < start_date or (previous_end and first < previous_end):
+                return None, "Stage windows must start after the planting date and must not overlap."
+            windows[stage] = {"start": first, "end": last}
+            previous_end = last
+
     return {
+        "environment": environment,
+        "stage_schedule": windows,
         "id": planting_id,
         "name": name,
         "variety": _short_text(raw.get("variety"), limit=80),

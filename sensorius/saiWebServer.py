@@ -28,6 +28,7 @@ import inspect
 MODULE = "saiWebServer"
 DEBUG = debug_enabled(MODULE)
 _IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v5.png"}
+NATIVE_WINDOW_BACKGROUND = "#dff5e8"
 DESKTOP_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-icon.png"
 MACOS_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-macos-icon.png"
 MACOS_ICNS_PATH = Path(__file__).resolve().parent / "resources" / "Sensorius.icns"
@@ -470,7 +471,8 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
             height=_int_env("SENSORIUS_GUI_HEIGHT", 1000),
             x=_int_env("SENSORIUS_GUI_X", 0),
             y=_int_env("SENSORIUS_GUI_Y", 48),
-            resizable=True, frameless=False, confirm_close=True
+            resizable=True, frameless=False, confirm_close=True,
+            background_color=NATIVE_WINDOW_BACKGROUND,
         )
         from .saiNativeScrollProfile import attach_native_scroll_profile
         attach_native_scroll_profile(window)

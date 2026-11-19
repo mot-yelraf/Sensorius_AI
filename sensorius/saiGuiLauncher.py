@@ -15,6 +15,7 @@ import urllib.request
 
 from .saiWebServer import (
     DESKTOP_ICON_PATH,
+    NATIVE_WINDOW_BACKGROUND,
     configure_linux_app_identity,
     set_macos_app_icon,
 )
@@ -102,6 +103,7 @@ def main() -> int:
         resizable=True,
         frameless=False,
         confirm_close=True,
+        background_color=NATIVE_WINDOW_BACKGROUND,
     )
     attach_native_scroll_profile(window)
     if sys.platform.startswith("linux"):

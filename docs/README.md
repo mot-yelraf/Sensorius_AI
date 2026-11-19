@@ -15,6 +15,7 @@ These are the canonical operating documents for Sensorius.
 - Hardware and GPIO: `docs/hardware.md`
 - Switch automations: `docs/automations.md`
 - Security policy and deployment boundary: `SECURITY.md`
+- Project license: [GNU GPLv3 only](../LICENSE) (`GPL-3.0-only`)
 - Third-party and binary notices: `THIRD_PARTY_NOTICES.md`
 
 Protocol and migration contract documents:

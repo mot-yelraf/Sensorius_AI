@@ -8,7 +8,8 @@ commands, settings writes, SMTP delivery, or dashboard broadcasts.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 
 @dataclass
@@ -252,6 +253,14 @@ class AutomationConditionEvaluator:
             if ctype == "bd_transitions" and executor_sid and executor_sid.lower() != own_sid.lower():
                 return False
             kind = cond.get("calendar_kind", "bd_transitions") if ctype == "calendar" else "bd_transitions"
+            if kind == "date_range":
+                try:
+                    start = date.fromisoformat(str(cond.get("calendar_start", "")))
+                    end = date.fromisoformat(str(cond.get("calendar_end", "")))
+                    today = datetime.fromtimestamp(self.epoch(), ZoneInfo(str(cond.get("calendar_timezone") or "UTC"))).date()
+                    return start <= today < end
+                except (ValueError, KeyError, TypeError, OverflowError):
+                    return False
             selected = str(cond.get("calendar_event", "all"))
             state_key = (str(rule_id or "calendar"), ctype, kind, selected, str(cond.get("calendar_at", "")))
             event_field = "_lunar_event" if kind == "lunar_events" else "_calendar_event" if kind in {"season", "date_time"} else "_bd_transition"

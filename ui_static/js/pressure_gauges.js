@@ -4,7 +4,7 @@ export function pressureGaugeConfig(metric, config, altitude, context = {}) {
   const device = String(context.device || '').trim().toLowerCase();
   const calibrationAltitude = Number(context.altitude);
   const corrected = !metric.includes('Absolute Baro-Pressure') && (
-    metric.startsWith('Gateway ') || context.weewx || device.includes('ecowitt') || device.includes('weewx') ||
+    metric.startsWith('Gateway ') || context.weewx || device.includes('ecowitt') || device.includes('weewx') || device === 'davis_vue' ||
     (['aqi', 'bme680', 'bme688', 'vpd', 'avpd', 'bme280', 'apvpd', 'acurite_usb'].includes(device) &&
       Number.isFinite(calibrationAltitude) && calibrationAltitude !== 0)
   );

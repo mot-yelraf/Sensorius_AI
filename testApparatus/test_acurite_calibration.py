@@ -134,6 +134,11 @@ async def test_acurite_calibration_modal_and_apply_use_system_altitude_and_no_mq
 @pytest.mark.parametrize("sid,label", [
     ("ecowitt-f85b1b51804c", "ECOWITT-51804C"),
     ("acurite-b6a529ffb882c4f", "ACURITE-882C4F"),
+    ("davis-b6a529ffb882c4f", "DAVIS-882C4F"),
+    ("oregon-b6a529ffb882c4f", "OREGON-882C4F"),
+    ("davis-123456", "DAVIS-123456"),
+    ("oregon-123", "OREGON-123"),
+    ("weewx-station", "WEEWX-STATION"),
     ("ecowitt-123", "ECOWITT-123"),
     ("aht-test123", "AHT-TEST123"),
     ("ecowitt-123456-ac1100-1234567", "ECOWITT-123456-AC1100-1234567"),

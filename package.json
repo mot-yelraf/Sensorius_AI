@@ -18,7 +18,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "BSD-2-Clause",
+  "license": "GPL-3.0-only",
   "type": "module",
   "bugs": {
     "url": "https://github.com/mot-yelraf/Sensorius_AI/issues"

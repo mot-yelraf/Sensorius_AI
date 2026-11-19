@@ -7,6 +7,8 @@ const create = (t, c) => { const el = document.createElement(t); if (c) el.class
 // ----- module state (set per-modal in init) -----
 let currentSwitchId = "";
 let automations = [];
+let automationGroups = ["Indoor", "Outdoor", "Greenhouse", "Other"];
+let selectedGroup = null;
 let selectedId = null;
 let sensorDirectory = [];
 let systemStatusDevices = [];
@@ -41,7 +43,7 @@ async function fetchSwitchInfo() {
 
 async function fetchAdvancedAutomations() {
   const data = await fetchJSON("/advanced/automations?switch_id=__all__");
-  return data.items || [];
+  return data;
 }
 
 async function fetchAutomationContext() {
@@ -224,7 +226,7 @@ function updateAstralDependencyWarning(modal) {
   const box = q(modal, "#astralDependencyWarning");
   if (!box) return;
   const hasAstral = [...modal.querySelectorAll("#conditionsContainer .cond-group select")]
-    .some(sel => String(sel?.value || "").trim().toLowerCase() === "astral" || (String(sel?.value || "").trim().toLowerCase() === "calendar" && sel.closest(".cond-group")?.querySelector(".calendar-kind")?.value !== "date_time"));
+    .some(sel => String(sel?.value || "").trim().toLowerCase() === "astral" || (String(sel?.value || "").trim().toLowerCase() === "calendar" && sel.closest(".cond-group")?.querySelector(".calendar-kind")?.value !== "date_time" && sel.closest(".cond-group")?.querySelector(".calendar-kind")?.value !== "date_range"));
   if (!hasAstral || astralStatus?.ok) {
     box.hidden = true;
     box.textContent = "";
@@ -237,40 +239,191 @@ function updateAstralDependencyWarning(modal) {
   );
 }
 
+function updateGroupSelection(modal) {
+  const remove = modal.querySelector("#btnRemoveAutomationGroup");
+  if (remove) {
+    const populated = automations.some(item => item.group === selectedGroup);
+    remove.disabled = !automationGroups.includes(selectedGroup) || automationGroups.length <= 1 || populated;
+    remove.title = populated ? "Move all automations out of this group before removing it." : automationGroups.length <= 1 ? "Keep at least one automation group." :
+      selectedGroup ? `Remove ${selectedGroup}` : "Select a group header first.";
+  }
+}
+
+async function changeAutomationGroup(modal, group, choice) {
+  const status = modal.querySelector("#automationArrangeStatus");
+  const controls = modal.querySelectorAll("#automationChooser button");
+  controls.forEach(button => { button.disabled = true; });
+  if (status) status.textContent = "Saving…";
+  try {
+    const fd = new FormData();
+    fd.set("group", group);
+    fd.set("choice", choice);
+    const response = await fetch("/advanced/automations/groups", {method: "POST", body: fd});
+    const body = await response.json();
+    if (!response.ok || !body.ok) throw new Error(body.error || "Unable to update automation groups.");
+    selectedGroup = choice === "Remove" ? null : group;
+    await loadAutomationsListInto(modal, {preserveSelection: true, throwOnError: true, keepChooser: true});
+    if (status) status.textContent = "Saved.";
+  } catch (error) {
+    renderList(modal);
+    if (status) status.textContent = error.message || "Unable to update automation groups.";
+  } finally {
+    modal.querySelector("#btnAddAutomationGroup").disabled = false;
+    modal.querySelector("#btnNewFromList").disabled = false;
+    modal.querySelector("#btnAutomationLibrary").disabled = false;
+    updateGroupSelection(modal);
+  }
+}
+
 function renderList(rootLike) {
   const modal = getModalRoot(rootLike);
   if (!modal) { console.warn("[AdvancedAutomation] modal root missing in renderList"); return; }
   const list = modal.querySelector("#automationList");
   if (!list)  { console.warn("[AdvancedAutomation] #automationList not found"); return; }
 
+  const expanded = new Map([...list.querySelectorAll(".automation-group")]
+    .map(section => [section.dataset.group, section.open]));
   list.innerHTML = "";
-  if (!automations.length) {
-    const empty = create("div", "muted");
-    empty.style.padding = ".6rem .75rem";
-    empty.textContent = "No saved automations yet.";
-    list.appendChild(empty);
-    return;
-  }
-
-  automations.forEach(a => {
-    const item = create("div", "list-item" + (a.id === selectedId ? " active" : ""));
-    item.onclick = () => {
-      selectedId = a.id;
-      renderList(modal);
-      loadSelectedIntoForm(modal);
-      setAutomationView(modal, "editor");
+  const groups = automationGroups;
+  updateGroupSelection(modal);
+  groups.forEach((group, groupIndex) => {
+    const section = create("details", "integration-block automation-group" + (group === selectedGroup ? " selected" : ""));
+    section.setAttribute("data-mobile-inline", "");
+    section.dataset.group = group;
+    section.open = expanded.get(group) ?? false;
+    const items = automations.filter(a => a.group === group)
+      .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const heading = create("summary");
+    const label = create("span", "automation-group-label");
+    const groupName = create("span", "automation-group-name");
+    groupName.textContent = `${group} -`;
+    const groupCount = create("span", "automation-group-count");
+    groupCount.textContent = `${items.length} Automations`;
+    label.append(groupName, document.createTextNode(" "), groupCount);
+    const groupMenu = create("button", "automation-group-menu");
+    groupMenu.type = "button";
+    groupMenu.textContent = "☰";
+    groupMenu.setAttribute("aria-label", `Organize group ${group}`);
+    const groupChoices = create("div", "automation-menu-choices");
+    groupChoices.setAttribute("popover", "auto");
+    const selectGroup = () => {
+      selectedGroup = group;
+      list.querySelectorAll(".automation-group").forEach(el => el.classList.toggle("selected", el.dataset.group === group));
+      updateGroupSelection(modal);
     };
-    const name  = create("div", "item-name");  name.textContent  = a.name || "(unnamed)";
-    const badge = create("div", `item-badge ${a.enabled ? "enabled" : "disabled"}`);
-    badge.textContent = a.enabled ? "Enabled" : "Disabled";
-    item.append(name, badge);
-    if (a.legacy) {
-      const legacyBadge = create("div", "item-badge legacy");
-      legacyBadge.textContent = "Legacy — open and Save";
-      legacyBadge.title = "Saving this rule moves it to the system automation path.";
-      item.appendChild(legacyBadge);
-    }
-    list.appendChild(item);
+    heading.addEventListener("click", selectGroup);
+    groupMenu.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectGroup();
+      groupChoices.togglePopover();
+      if (groupChoices.matches(":popover-open")) {
+        const anchor = groupMenu.getBoundingClientRect();
+        const bounds = groupChoices.getBoundingClientRect();
+        groupChoices.style.left = `${Math.max(8, anchor.right - bounds.width)}px`;
+        groupChoices.style.top = `${Math.max(8, Math.min(anchor.bottom, window.innerHeight - bounds.height - 8))}px`;
+      }
+    };
+    ["Up", "Down"].forEach(choice => {
+      const button = create("button");
+      button.type = "button";
+      button.textContent = choice;
+      button.disabled = choice === "Up" ? groupIndex === 0 : groupIndex === groups.length - 1;
+      button.onclick = () => changeAutomationGroup(modal, group, choice);
+      groupChoices.appendChild(button);
+    });
+    heading.append(label, groupMenu);
+    section.appendChild(heading);
+    const content = create("div", "integration-block-content");
+    section.append(content, groupChoices);
+    content.hidden = !items.length;
+    items.forEach((a, index) => {
+      const item = create("div", "list-item" + (a.id === selectedId ? " active" : ""));
+      const name = create("button", "item-name automation-open");
+      name.type = "button";
+      name.textContent = a.name || "(unnamed)";
+      name.onclick = () => {
+        selectedId = a.id;
+        renderList(modal);
+        loadSelectedIntoForm(modal);
+        setAutomationView(modal, "editor");
+      };
+      const controls = create("div", "automation-item-controls");
+      const badge = create("div", `item-badge ${a.enabled ? "enabled" : "disabled"}`);
+      badge.textContent = a.enabled ? "Enabled" : "Disabled";
+      const menu = create("details", "automation-menu");
+      menu.setAttribute("data-mobile-inline", "");
+      const toggle = create("summary");
+      toggle.textContent = "☰";
+      toggle.setAttribute("aria-label", `Organize ${a.name || "automation"}`);
+      menu.appendChild(toggle);
+      menu.addEventListener("toggle", () => {
+        if (menu.open) {
+          list.querySelectorAll(".automation-menu").forEach(other => {
+            if (other !== menu) other.open = false;
+          });
+          choices.showPopover();
+          const anchor = toggle.getBoundingClientRect();
+          const bounds = choices.getBoundingClientRect();
+          choices.style.left = `${Math.max(8, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - 8))}px`;
+          choices.style.top = `${Math.max(8, Math.min(anchor.bottom, window.innerHeight - bounds.height - 8))}px`;
+        } else if (choices.matches(":popover-open")) {
+          choices.hidePopover();
+        }
+      });
+      menu.addEventListener("keydown", event => {
+        if (event.key === "Escape") { menu.open = false; toggle.focus(); }
+      });
+      const choices = create("div", "automation-menu-choices");
+      choices.setAttribute("popover", "auto");
+      choices.addEventListener("toggle", event => {
+        if (event.newState === "closed") menu.open = false;
+      });
+      ["Up", "Down", ...groups].forEach(choice => {
+        const button = create("button");
+        button.type = "button";
+        button.textContent = choice;
+        button.disabled = (choice === "Up" && index === 0) ||
+          (choice === "Down" && index === items.length - 1) || choice === group;
+        button.onclick = async () => {
+          const status = modal.querySelector("#automationArrangeStatus");
+          choices.querySelectorAll("button").forEach(el => { el.disabled = true; });
+          if (status) status.textContent = "Saving…";
+          try {
+            const fd = new FormData();
+            fd.set("switch_id", currentSwitchId);
+            fd.set("rule_id", a.id);
+            fd.set("choice", choice);
+            const response = await fetch("/advanced/automations/arrange", { method: "POST", body: fd });
+            const body = await response.json();
+            if (!response.ok || !body.ok) throw new Error(body.error || "Unable to organize automation.");
+            await loadAutomationsListInto(modal, { preserveSelection: true, throwOnError: true });
+            const target = groups.includes(choice) ? choice : group;
+            const targetSection = [...list.querySelectorAll(".automation-group")].find(el => el.dataset.group === target);
+            if (targetSection) targetSection.open = true;
+            const moved = [...list.querySelectorAll(".automation-menu summary")]
+              .find(el => el.getAttribute("aria-label") === toggle.getAttribute("aria-label"));
+            moved?.focus();
+            if (status) status.textContent = "Saved.";
+          } catch (error) {
+            renderList(modal);
+            if (status) status.textContent = error.message || "Unable to organize automation.";
+          }
+        };
+        choices.appendChild(button);
+      });
+      menu.appendChild(choices);
+      controls.append(badge, menu);
+      item.append(name, controls);
+      if (a.legacy) {
+        const legacyBadge = create("div", "item-badge legacy");
+        legacyBadge.textContent = "Legacy — open and Save";
+        legacyBadge.title = "Saving or organizing this rule moves it to the system automation path.";
+        item.appendChild(legacyBadge);
+      }
+      content.appendChild(item);
+    });
+    list.appendChild(section);
   });
 }
 
@@ -697,8 +850,8 @@ function renderAsTime() {
   calendarKindLabel.textContent = "Calendar";
   const calendarKind = create("select", "calendar-kind");
   calendarKind.setAttribute("aria-label", "Calendar event type");
-  calendarKind.innerHTML = '<option value="date_time">Date/Time</option><option value="bd_transitions">BD Transitions</option><option value="lunar_events">Lunar Events</option><option value="season">Season</option>';
-  calendarKind.value = ["lunar_events", "date_time", "season"].includes(cond?.calendar_kind) ? cond.calendar_kind : "bd_transitions";
+  calendarKind.innerHTML = '<option value="date_time">Date/Time</option><option value="bd_transitions">BD Transitions</option><option value="lunar_events">Lunar Events</option><option value="season">Season</option><option value="date_range">Stage Date Range</option>';
+  calendarKind.value = ["lunar_events", "date_time", "season", "date_range"].includes(cond?.calendar_kind) ? cond.calendar_kind : "bd_transitions";
   calendarKindWrap.append(calendarKindLabel, calendarKind);
   const calendarEventWrap = create("div");
   const calendarEventLabel = create("label");
@@ -716,6 +869,18 @@ function renderAsTime() {
   calendarDate.setAttribute("aria-label", "Calendar date and time");
   calendarDate.value = String(cond?.calendar_local || "");
   calendarDateWrap.append(calendarDateLabel, calendarDate);
+  const calendarRangeWrap = create("div", "calendar-range");
+  for (const [key, label] of [["start", "Stage start"], ["end", "Stage end (exclusive)"]]) {
+    const wrapper = create("label");
+    wrapper.textContent = label;
+    const input = create("input", "calendar-range-" + key);
+    input.type = "date";
+    input.setAttribute("aria-label", label);
+    input.value = String(cond?.["calendar_" + key] || "");
+    input.dataset.timezone = cond?.calendar_timezone || calendarTimezone;
+    wrapper.appendChild(input);
+    calendarRangeWrap.appendChild(wrapper);
+  }
   function fillCalendarEvents(preferred = "all") {
     const seasons = [["all", "All"], ["imbolc", "Imbolc"],
       ["spring_equinox", "Spring Equinox / Ostara"], ["spring_equilux", "Spring Equilux"],
@@ -743,7 +908,7 @@ function renderAsTime() {
   function renderAsCalendar(){
     group.innerHTML = "";
     const row = create("div", "cond calendar");
-    row.append(typeWrap, calendarKindWrap, calendarKind.value === "date_time" ? calendarDateWrap : calendarEventWrap, rem);
+    row.append(typeWrap, calendarKindWrap, calendarKind.value === "date_range" ? calendarRangeWrap : calendarKind.value === "date_time" ? calendarDateWrap : calendarEventWrap, rem);
     group.appendChild(row);
   }
 
@@ -1061,6 +1226,13 @@ function serializeForm(modal){
       return {type: "system_status", status, device_type, device_id, duration_min: value};
     } else if (typeVal === "calendar") {
       const kind = group.querySelector(".calendar-kind").value;
+      if (kind === "date_range") {
+        const start = group.querySelector(".calendar-range-start");
+        const end = group.querySelector(".calendar-range-end");
+        if (!start.value || !end.value || start.value >= end.value) throw new Error("Set an ordered stage date range.");
+        return {type: "calendar", calendar_kind: kind, calendar_start: start.value,
+          calendar_end: end.value, calendar_timezone: start.dataset.timezone || calendarTimezone};
+      }
       if (kind === "date_time") {
         const input = group.querySelector(".calendar-datetime");
         if (!input?.value || !input.checkValidity()) throw new Error("Select a valid Calendar date and time.");
@@ -1223,12 +1395,16 @@ async function loadAutomationsListInto(rootLike, opts = {}) {
   if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadAutomationsListInto"); return; }
   const prevSelectedId = selectedId;
 
-  const items = await fetchAdvancedAutomations().catch(err => {
+  const data = await fetchAdvancedAutomations().catch(err => {
+    if (opts.throwOnError) throw err;
     console.warn("[AdvancedAutomation] fetchAdvancedAutomations failed:", err);
-    return [];
+    return {items: []};
   });
+  automationGroups = Array.isArray(data.groups) && data.groups.length
+    ? [...new Set(data.groups.filter(group => typeof group === "string" && group.trim()))]
+    : ["Indoor", "Outdoor", "Greenhouse", "Other"];
 
-  automations = (items || []).map(it => {
+  automations = (data.items || []).map(it => {
     let parsed = {};
     try { parsed = JSON.parse(it.script_json || "{}"); } catch {}
     const parsedActions = Array.isArray(parsed.actions) ? parsed.actions : (parsed.actions ? [parsed.actions] : []);
@@ -1237,6 +1413,8 @@ async function loadAutomationsListInto(rootLike, opts = {}) {
       name: parsed.name || it.rule_id,
       enabled: !!it.enabled,
       legacy: !!it.legacy,
+      group: automationGroups.includes(it.group) ? it.group : "Other",
+      position: Number.isSafeInteger(it.position) && it.position >= 0 ? it.position : Number.MAX_SAFE_INTEGER,
       conditions: parsed.conditions || [],
       actions: parsedActions.map(action => ({
         ...action,
@@ -1255,7 +1433,7 @@ async function loadAutomationsListInto(rootLike, opts = {}) {
 
   renderList(modal);
 
-  if (!automations.length) {
+  if (!automations.length && !opts.keepChooser) {
     loadSelectedIntoForm(modal);
     setAutomationView(modal, "editor");
     return;
@@ -1399,6 +1577,37 @@ window.initAdvancedAutomationModal = async function (modalEl) {
 
     if (btnNew) btnNew.onclick = () => startNewAutomation();
     if (btnNewFromList) btnNewFromList.onclick = () => startNewAutomation();
+    const btnLibrary = rootForQuery.querySelector("#btnAutomationLibrary");
+    if (btnLibrary) btnLibrary.onclick = async () => {
+      btnLibrary.disabled = true;
+      try {
+        const url = new URL("./automation_library.js", import.meta.url);
+        url.search = new URL(import.meta.url).search;
+        const library = await import(url.href);
+        await library.openAutomationLibrary(modalRoot, async () => {
+          await loadAutomationsListInto(modalRoot, {keepChooser: true, throwOnError: true});
+        });
+      } catch (error) {
+        const status = modalRoot.querySelector("#automationArrangeStatus");
+        if (status) status.textContent = error.message || "Unable to open the automation library.";
+      } finally {
+        btnLibrary.disabled = false;
+      }
+    };
+    selectedGroup = null;
+    const btnAddGroup = rootForQuery.querySelector("#btnAddAutomationGroup");
+    const btnRemoveGroup = rootForQuery.querySelector("#btnRemoveAutomationGroup");
+    if (btnAddGroup) btnAddGroup.onclick = () => {
+      const name = window.prompt("Group name:");
+      if (name !== null) changeAutomationGroup(modalRoot, name.trim(), "Add");
+    };
+    if (btnRemoveGroup) btnRemoveGroup.onclick = () => {
+      if (!automationGroups.includes(selectedGroup) || automationGroups.length <= 1) return;
+      if (automations.some(item => item.group === selectedGroup)) return;
+      if (window.confirm(`Remove empty group “${selectedGroup}”?`)) {
+        changeAutomationGroup(modalRoot, selectedGroup, "Remove");
+      }
+    };
     const btnDuplicate = rootForQuery.querySelector("#btnDuplicateAutomation");
     if (btnDuplicate) btnDuplicate.onclick = () => {
       const saved = automations.find(item => item.id === selectedId);
@@ -1445,7 +1654,7 @@ window.initAdvancedAutomationModal = async function (modalEl) {
         if (unitsStatus) unitsStatus.textContent = "";
         // If editor is visible, refresh the form so sensor/metric selectors get populated.
         const chooser = q(modalRoot, "#automationChooser");
-        const editorVisible = !!chooser && chooser.hidden;
+        const editorVisible = !!editorWrap && !editorWrap.hidden;
         if (editorVisible) {
           loadSelectedIntoForm(modalRoot);
         }

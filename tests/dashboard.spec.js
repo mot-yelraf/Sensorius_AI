@@ -271,6 +271,11 @@ test('opens the 29 day Sun/Moon graph from an aligned tile button', async ({ pag
 });
 
 test('renders the integrated Biodynamic Calendar and exercises its user workflows', async ({ page }) => {
+  await page.route('**/advanced/automations?*', route => route.fulfill({json: {items: [{
+    rule_id: 'linked-bd', enabled: false, group: 'Greenhouse',
+    library_json: JSON.stringify({planting_id: 'lettuce'}),
+    script_json: JSON.stringify({name: 'Lettuce BD reminder'}),
+  }]}}));
   const noteWrites = [];
   const plantingWrites = [];
   await page.route('**/api/biodynamic-calendar-app/**', async (route) => {
@@ -278,12 +283,12 @@ test('renders the integrated Biodynamic Calendar and exercises its user workflow
     const url = new URL(request.url());
     if (url.pathname.endsWith('/calendar')) {
       const month = url.searchParams.get('month') || '2026-09';
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(successfulBiodynamicMonth(month)) });
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({...successfulBiodynamicMonth(month), plantings: plantingWrites.slice(-1)}) });
       return;
     }
     if (url.pathname.endsWith('/calendar-range')) {
       const start = url.searchParams.get('start') || '2026-09';
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, months: [successfulBiodynamicMonth(start)] }) });
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, plantings: plantingWrites.slice(-1), months: [{...successfulBiodynamicMonth(start), plantings: plantingWrites.slice(-1)}] }) });
       return;
     }
     if (url.pathname.endsWith('/daily-summary')) {
@@ -296,7 +301,7 @@ test('renders the integrated Biodynamic Calendar and exercises its user workflow
       return;
     }
     if (url.pathname.endsWith('/planting') && request.method() === 'POST') {
-      const planting = { id: 'lettuce', ...request.postDataJSON() };
+      const planting = { ...request.postDataJSON(), id: 'lettuce' };
       plantingWrites.push(planting);
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, planting, plantings: [planting] }) });
       return;
@@ -338,9 +343,16 @@ test('renders the integrated Biodynamic Calendar and exercises its user workflow
   await page.locator('#plantingEditor > summary').click();
   await page.locator('#plantingForm [name="name"]').fill('Lettuce');
   await page.locator('#plantingForm [name="start_date"]').fill('2026-09-15');
+  await page.locator('.planting-stage-editor > summary').click();
+  await page.locator('#plantingForm [name=environment]').selectOption('Greenhouse');
+  await page.locator('#plantingForm [name=stage_seedling_start]').fill('2026-09-15');
+  await page.locator('#plantingForm [name=stage_seedling_end]').fill('2026-09-25');
   await page.locator('#savePlantingBtn').click();
   await expect.poll(() => plantingWrites.length).toBe(1);
   expect(plantingWrites[0].name).toBe('Lettuce');
+  expect(plantingWrites[0].environment).toBe('Greenhouse');
+  expect(plantingWrites[0].stage_schedule).toEqual({seedling: {start: '2026-09-15', end: '2026-09-25'}});
+  await expect(page.getByText('Linked automations (1)', {exact: true}).first()).toBeVisible();
 
   await page.locator('#nextBtn').click();
   await expect(page.locator('#monthLabel')).toHaveText('October 2026');

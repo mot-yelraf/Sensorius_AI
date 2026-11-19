@@ -460,3 +460,53 @@ def test_window_geometry_ignores_invalid_overrides(monkeypatch):
 
     assert geometry["width"] == 1920
     assert geometry["y"] == 48
+
+
+def test_service_gui_uses_nonwhite_initial_canvas(monkeypatch):
+    calls = []
+    monkeypatch.setitem(sys.modules, 'webview', SimpleNamespace(
+        create_window=lambda *args, **kwargs: calls.append(kwargs) or SimpleNamespace(),
+        start=lambda **kwargs: None,
+    ))
+    monkeypatch.setattr(saiGuiLauncher.sys, 'platform', 'linux')
+    monkeypatch.setenv('DISPLAY', ':0')
+    monkeypatch.setattr(saiGuiLauncher, '_wait_for_health', lambda url: True)
+    monkeypatch.setattr(saiGuiLauncher, 'configure_linux_app_identity', lambda: None)
+    monkeypatch.setattr(saiGuiLauncher, 'attach_native_scroll_profile', lambda window: None)
+    assert saiGuiLauncher.main() == 0
+    assert calls[0]['background_color'] == saiWebServer.NATIVE_WINDOW_BACKGROUND
+
+
+def test_embedded_gui_uses_same_nonwhite_initial_canvas(monkeypatch):
+    import asyncio
+    import httpx
+    import sensorius.saiGuiEnvironment as gui_environment
+    import sensorius.saiNativeScrollProfile as native_profile
+
+    calls = []
+    window = SimpleNamespace()
+    monkeypatch.setitem(sys.modules, 'webview', SimpleNamespace(
+        create_window=lambda *args, **kwargs: calls.append(kwargs) or window,
+    ))
+    monkeypatch.setattr(saiWebServer.sys, 'platform', 'darwin')
+    monkeypatch.setattr(gui_environment, 'configure_gui_environment', lambda: None)
+    monkeypatch.setattr(native_profile, 'attach_native_scroll_profile', lambda window: None)
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            assert url.endswith('/healthz')
+            return SimpleNamespace(status_code=200)
+
+    async def no_delay(seconds):
+        return None
+
+    monkeypatch.setattr(httpx, 'AsyncClient', Client)
+    monkeypatch.setattr(asyncio, 'sleep', no_delay)
+    assert asyncio.run(saiWebServer.launch_webview()) is window
+    assert calls[0]['background_color'] == saiWebServer.NATIVE_WINDOW_BACKGROUND

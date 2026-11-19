@@ -5,11 +5,85 @@ by the switch controller monitors.
 Local GPIO relays and remote Nodus switches share the same controller contract,
 so automation rules use the same behavior for both.
 
+**Saved Automations** starts with four collapsible sections: **Indoor**, **Outdoor**,
+**Greenhouse**, and **Other**, styled like the other settings sections.
+Each section title shows its count, for example **Indoor - 3 Automations**;
+empty sections show **0 Automations** without an empty-state message.
+Sections start collapsed. Header names (including the hyphen) align right and
+counts align left in two equal columns centered within the section header.
+Select a group header to select that group. Its right-hand hamburger menu offers
+**Up** and **Down** to change the section order. In the pane footer, **Add Group**
+prompts for a unique name; **Remove Group** removes the selected group after
+confirmation. Only empty groups can be removed; move their automations to
+another group first. At least one group must remain. Group names and
+section order persist across reloads.
+Existing rules default to **Other**. New rules use **Other** when available,
+otherwise the first remaining group.
+Use the hamburger selector beside an automation's Enabled/Disabled indicator to
+choose **Up** or **Down** within its group, or choose a group to move it to the
+end of that section. The menu group choices match the displayed sections and
+update immediately when a group is added, removed, or reordered.
+Grouping and order persist across reloads and do not change
+rule enablement, conditions, actions, or runtime evaluation priority.
+The **New** button is in the pane footer.
+
 To reuse a rule, open it from **Saved Automations** and select **Duplicate**
 between **Saved Automations** and **New**. The editor opens an unnamed draft
 with **Enable** set to **No** and copies the saved conditions and actions.
 Give the copy a name, review its sensors and actors, and select **Save** to add
 it as a separate automation. The original remains in **Saved Automations**.
+
+## Automation Library
+
+Select **Library** beside **New** to browse bundled garden-crop starters. Filter
+by Indoor/Outdoor/Greenhouse, Root/Leaf/Flower/Fruit, crop, and stage. The four
+stages are Seedling, Immature, Mature, and Ready to Harvest. All bundle sections
+start collapsed. Select individual rules or whole bundles; selections remain
+selected while changing filters (maximum 100 per import).
+
+The initial catalog contains twelve illustrative crop profiles, one for each
+classification/environment combination. It provides low/high temperature,
+relative-humidity, VPD and soil-moisture alerts, a matching BD tending-period
+alert, and a stage-start reminder. These are starting points with no prescribed
+growing thresholds or stage durations. Enter your own targets during review.
+All imported actions are Web UI **Alert** actions; use the existing editor to
+review or change actions after import.
+
+**Review Selected** lets you choose an existing Saved Automations group, name
+each planting/variety, bind compatible sensor metrics, enter thresholds and
+hysteresis, and optionally set stage start/end dates. Shared sensor bindings
+apply one sensor choice to all selected alerts for a metric role. Temperature
+values use the displayed units and are converted to the metric's native units
+on import. Changing a sensor binding clears its threshold to avoid silently
+reinterpreting a value in different units.
+
+You can associate selections with a **BD Calendar Planting**. Set that planting's
+**Automation stage windows** and environment in its editor first. The library
+uses those dates for the selected stage and checks the planting's classification
+and environment. Calendar guidance uses explicit planting stage windows when
+present; older plantings retain their existing inferred stages.
+Date ranges include their start and exclude their end, using
+the hub timezone. Sensor alerts and BD reminders apply only within a specified
+window; the stage-start template creates a one-time Calendar Date/Time event.
+Unlinked sensor and BD alerts may omit a window. Stage-start reminders require
+one. BD reminders use matching calendar transitions and the hub's configured
+calendar location. Stage dates do not automatically enable rules or replace
+previous-stage rules.
+
+**Import Selected** validates and saves the entire selection together as disabled,
+independent Advanced rules. Existing rules are preserved. Retrying an unchanged
+import does not create duplicate copies. Each imported copy retains its template
+ID/revision, crop, stage, environment, import batch, and optional planting ID in
+`library_json`. Editing the saved rule preserves that provenance. Later catalog
+updates and planting-date changes do not rewrite saved copies; review those
+copies in the automation editor when dates change. Plantings show their linked
+saved automations and enabled state.
+
+The small bundled catalog is defined in `sensorius/saiAutomationLibrary.py`;
+`ui_static/js/automation_library.js` implements browsing and review. Import uses
+`AutomationManager` and the existing atomic TOML persistence path. Planting
+schedules are additive fields in the existing planting JSON records; no database
+schema migration is needed.
 
 ## Storage
 
@@ -39,9 +113,15 @@ restarts.
 
 `sensorius/saiAutomationManager.py` owns this file. The current schema is:
 
-- `[Meta]`: version and notes.
+- `[Meta]`: version, notes, and optional ordered `automation_groups` names.
 - `[Advanced]`: named rules with `enabled` and compact JSON `script_json`.
+  Optional `group` and `position` fields store presentation metadata;
+  `library_json` retains imported template provenance; older
+  rules default to Other and retain rule-ID ordering until arranged.
 - `[Scripts]`: optional coarse global toggles.
+
+Organizing legacy rules writes the affected group's positions to the canonical
+file and leaves the former file untouched.
 
 ## Switch Keys
 
@@ -72,6 +152,7 @@ Advanced rules can express:
 - Sunrise and sunset schedules through Astral settings.
 - Timer windows through `duration_min`, `period_min`, and legacy `freq_hours`.
 - Calendar events for filtered biodynamic transitions and the eight lunar phases.
+- Calendar Stage Date Range conditions for date-bounded rules.
 - **Severe Weather**: active NWS weather warnings and watches at the Astral location.
 - **System Status**: low disk space, failed database writes, sensor offline, or lost MQTT liveness.
 - Multi-action rules.

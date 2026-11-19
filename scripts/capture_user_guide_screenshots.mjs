@@ -58,12 +58,21 @@ const payloads = {
       {channel_id: 's1-demo', row_label: 'S1 current state, age:', state: 'Off', state_epoch: epoch - 1800},
       {channel_id: 's2-demo', row_label: 'S2 current state, age:', state: 'On', state_epoch: epoch - 600},
     ]},
-  '/advanced/automations': {items: [{rule_id: 'greenhouse-cooling', switch_id: '__system__', enabled: true,
-    script_json: JSON.stringify({name: 'Greenhouse cooling', enabled: true, conditions: [], actions: [{type: 'none'}]})}]},
+  '/advanced/automations': {groups: ['Indoor', 'Outdoor', 'Greenhouse', 'Other'], items: [
+    {rule_id: 'lettuce-temperature-low', group: 'Greenhouse', switch_id: '__system__', enabled: false,
+      script_json: JSON.stringify({name: 'Lettuce / Seedling / Temperature low alert', enabled: false,
+        conditions: [{type: 'calendar', calendar_kind: 'date_range', calendar_start: '2026-10-14', calendar_end: '2026-11-01', calendar_timezone: 'UTC'},
+          {type: 'sensor', sensor: 'avpd-demo02', metric: 'Temperature', op: '<', value: 10, hyst: 1}],
+        actions: [{type: 'none', executor_switch_id: '__system__'}]})},
+    {rule_id: 'lettuce-bd-tending', group: 'Greenhouse', switch_id: '__system__', enabled: false,
+      script_json: JSON.stringify({name: 'Lettuce / Seedling / Favorable BD tending period', enabled: false,
+        conditions: [{type: 'calendar', calendar_kind: 'bd_transitions', calendar_event: 'water', executor_switch_id: '__system__'}],
+        actions: [{type: 'none', executor_switch_id: '__system__'}]})},
+  ]},
   '/sensor-ids': ['avpd-demo02', 'lux-demo01'],
   '/sensor-metrics': ['Temperature', 'Rel-Humidity', 'Ambient VPD', 'Light Intensity'],
   '/graph-setups': {setups: []},
-  '/sensor-directory': [], '/notifications/rules': {rules: []},
+  '/sensor-directory': [{id: 'avpd-demo02', label: 'Greenhouse climate'}], '/notifications/rules': {rules: []},
   '/timezone-options': {options: ['UTC']},
 };
 const host = spawn(process.env.SENSORIUS_PYTHON || 'python3', [
@@ -109,6 +118,14 @@ try {
       const key = `${url.searchParams.get('sensor_id') || 'avpd-demo02'}::${url.searchParams.get('metric1') || 'Ambient VPD'}`;
       const ts = Array.from({length: 49}, (_, i) => new Date(now - 86400000 + i * 1800000).toISOString());
       return route.fulfill({json: {series: {[key]: {ts, vals: ts.map((_, i) => 1.2 + Math.sin(i / 8) * .3)}}}});
+    }
+    if (url.pathname === '/advanced/automation-library') return route.continue();
+    if (url.pathname === '/sensor-metrics' && url.searchParams.get('input_units') === 'true') {
+      return route.fulfill({json: {
+        Temperature: {native_unit: '°C', unit: '°F', factor: 1.8, offset: 32},
+        'Rel-Humidity': {native_unit: '%', unit: '%'},
+        'Ambient VPD': {native_unit: 'kPa', unit: 'kPa'},
+      }});
     }
     if (Object.hasOwn(payloads, url.pathname)) return route.fulfill({json: payloads[url.pathname]});
     if (['/edit-system', '/edit-sensor', '/edit-switch'].includes(url.pathname)) {
@@ -160,6 +177,10 @@ try {
     const modal = page.locator('#setupPiModal');
     await modal.getByRole('button', {name: 'Halt or Remove Device', exact: true}).waitFor({state: 'visible'});
     if (pane) await modal.getByRole('button', {name: pane, exact: true}).click();
+    if (pane === 'Automations') {
+      await page.setViewportSize({width: 1200, height: 1600});
+      await page.waitForFunction(() => document.querySelector('#pane-automations')?.dataset.automationInit === '1' && !document.querySelector('#automationEditorWrap')?.inert);
+    }
     if (section) {
       await modal.locator('details').evaluateAll(details => details.forEach(detail => { detail.open = false; }));
       await modal.locator('details').evaluateAll((details, label) => {
@@ -175,7 +196,7 @@ try {
     if (pane === 'Halt or Remove Device') await page.waitForFunction(() => document.querySelectorAll('#remove-device-list input').length === 4);
     if (pane === 'Add Device') await page.waitForFunction(() => document.querySelector('#ecowitt-sensor-list')?.textContent.includes('DEMO-ARRAY'));
     if (prepare) await prepare(page, modal);
-    if (section) {
+    if (section || pane === 'Automations') {
       // Give expanded sections enough space for their Save controls in the guide.
       await modal.locator('.system-settings-shell').evaluate(shell => {
         const scrollAreas = [...shell.querySelectorAll('*')].filter(element =>
@@ -191,6 +212,14 @@ try {
         return detail.getBoundingClientRect().bottom <= scroll.getBoundingClientRect().bottom + 1;
       });
       assert(complete, `${filename}: expanded section would be clipped`);
+    }
+    if (filename.startsWith('system-automation-library')) {
+      const complete = await modal.locator('#automationLibrary').evaluate(library => {
+        library.scrollTop = 0;
+        const bounds = library.getBoundingClientRect();
+        return library.querySelector('.pane-footer').getBoundingClientRect().bottom <= bounds.bottom + 1;
+      });
+      assert(complete, `${filename}: Library footer would be clipped`);
     }
     await auditAndCapture(page, modal.locator('.system-settings-shell'), filename);
     await page.close();
@@ -238,11 +267,36 @@ try {
     await page.waitForFunction(() => document.querySelectorAll('#locations-list .location-input').length === 3);
   });
   await systemCapture('system-settings-advanced.png', 'Advanced', 'Database');
-  await systemCapture('system-automations-list.png', 'Automations');
-  await systemCapture('system-automation-definition.png', 'Automations', null, async (page, modal) => {
-    await modal.locator('#btnNewFromList').click();
-    await modal.locator('#autoName').fill('Greenhouse cooling');
+  await systemCapture('system-automations-list.png', 'Automations', null, async (page, modal) => {
+    await modal.locator('.automation-group[data-group="Greenhouse"] > summary').click();
+    await modal.getByText('Lettuce / Seedling / Temperature low alert', {exact: true}).waitFor();
+    assert.equal(await modal.locator('#btnAutomationLibrary').isVisible(), true);
   });
+  await systemCapture('system-automation-definition.png', 'Automations', null, async (page, modal) => {
+    await modal.locator('.automation-group[data-group="Greenhouse"] > summary').click();
+    await modal.getByText('Lettuce / Seedling / Temperature low alert', {exact: true}).click();
+    assert.equal(await modal.locator('#autoEnabled').inputValue(), 'false');
+  });
+  for (const review of [false, true]) {
+    await systemCapture(`system-automation-library${review ? '-review' : ''}.png`, 'Automations', null, async (page, modal) => {
+      await modal.getByRole('button', {name: 'Library', exact: true}).click();
+      const library = modal.locator('#automationLibrary');
+      await library.getByLabel('Crop type', {exact: true}).selectOption('Leaf');
+      const bundle = library.locator('.library-bundle');
+      await bundle.locator('summary').click();
+      await bundle.getByLabel('Temperature low alert', {exact: true}).check();
+      assert.equal(await modal.locator('#automationChooser').isVisible(), false);
+      if (review) {
+        await library.getByRole('button', {name: 'Review Selected (1)', exact: true}).click();
+        await library.getByLabel('Shared temperature sensor / metric', {exact: true}).selectOption(JSON.stringify(['avpd-demo02', 'Temperature']));
+        await library.getByLabel('Stage start', {exact: true}).fill('2026-10-14');
+        await library.getByLabel('Stage end (exclusive)', {exact: true}).fill('2026-11-01');
+        await library.getByLabel('Threshold (°F)', {exact: true}).fill('50');
+        await library.getByLabel('Hysteresis (same units)', {exact: true}).fill('1.8');
+        assert.equal(await library.getByRole('button', {name: 'Import Selected (1)', exact: true}).isVisible(), true);
+      }
+    });
+  }
   for (const [platform, filename] of [['Linux', 'linux-rpi'], ['Darwin', 'macos']]) {
     payloads['/scan-nodus-setup'] = {platform, found: platform === 'Linux', ssids: ['Nodus_Setup'],
       manual_join_required: platform === 'Darwin', current_ssid: 'Example Garden',

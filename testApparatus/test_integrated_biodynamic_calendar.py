@@ -310,8 +310,8 @@ def test_all_calendar_expandables_default_closed_and_use_process_scoped_state():
     javascript = (root / "ui_static" / "biodynamic_calendar" / "app.js").read_text(encoding="utf-8")
     routes = (root / "sensorius" / "saiBiodynamicCalendarApp.py").read_text(encoding="utf-8")
 
-    assert template.count("<details") == 5
-    assert template.count("data-runtime-section=") == 5
+    assert template.count("<details") == 6
+    assert template.count("data-runtime-section=") == 6
     assert not any(" open>" in line for line in template.splitlines() if "<details" in line)
     assert 'data-runtime-section="calendar-astral-details"' in javascript
     assert "window.__sensoriusExpandableSectionState" in javascript

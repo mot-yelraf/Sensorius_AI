@@ -1,8 +1,14 @@
 # Third-Party And Binary Notices
 
-Sensorius source code is distributed under the BSD 2-Clause License in
-`LICENSE`. `package.json` is private tooling metadata and uses the same
-BSD-2-Clause designation; it is not a separately published npm package.
+Sensorius-maintained source code is distributed under the GNU General Public
+License, version 3 only (`GPL-3.0-only`), in [LICENSE](LICENSE).
+Copyright (c) 2026 T.W. Farley, dba Peace Hill Studios.
+`package.json` is private tooling metadata and uses the same GPL-3.0-only
+designation; it is not a separately published npm package.
+
+Versions previously distributed under the BSD 2-Clause License remain available
+under those terms. Third-party components and assets retain their respective
+licenses and notices; the project license change does not relicense them.
 
 ## JPL DE421 Ephemeris
 
@@ -35,14 +41,23 @@ that records each deployed path, byte size, and SHA-256 digest.
 
 These are application payloads, not CircuitPython firmware images. No
 third-party CircuitPython runtime binary is bundled in the package directories.
-The repository's BSD 2-Clause License applies to the Sensorius-maintained
-payloads to the extent the project owns the corresponding source.
+The repository's GPLv3 license applies to Sensorius-maintained payloads
+distributed with this revision to the extent the project owns the corresponding
+source. Previously distributed BSD-licensed payload versions remain available
+under their original terms.
+
+Distribution of GPLv3-covered compiled `.mpy` payloads requires making their
+complete Corresponding Source available in accordance with section 6 of
+[LICENSE](LICENSE), including the scripts needed to build and install them.
+A manifest, digest, or source commit identifier alone does not satisfy this
+requirement.
 
 Before publishing a new OTA package:
 
 1. Build it only from source the publisher owns or is authorized to distribute.
 2. Record the source repository and exact source commit in release notes or the
-   manifest build metadata.
+   manifest build metadata, and provide complete Corresponding Source for
+   GPLv3-covered compiled payloads using a section 6 distribution method.
 3. Preserve notices for any copied third-party source included in the payload.
 4. Verify every packaged file against the manifest before release.
 5. Scan readable and compiled payloads for Wi-Fi, MQTT, API, and other runtime
@@ -50,8 +65,10 @@ Before publishing a new OTA package:
 
 The three packages present on 2026-07-22 passed manifest size/SHA-256 checks and
 a static string scan found no committed runtime credentials. Their manifests
-do not record a source commit or license provenance, so reproducible source
-traceability remains a release-process requirement for future packages.
+do not record a source commit or license provenance. Their complete
+Corresponding Source availability has not been verified. Resolve source
+provenance and provide the required source before redistributing these compiled
+payloads under GPLv3; the license change alone does not resolve this gap.
 
 ## Weather Glyphs (Twemoji)
 
