@@ -13,6 +13,7 @@ from PIL import Image
 
 from sensorius.saiThemeManager import (
     THEME_PALETTES,
+    dashboard_startup_color,
     ThemeManager,
     ThemeValidationError,
     is_custom_theme_selection,
@@ -71,10 +72,12 @@ def test_create_resolve_and_delete_custom_theme(tmp_path):
 
     styles = manager.style_values("sensorius", selection)
     assert styles["--dashboard-card-bg"] == "#e4f1e4"
+    assert styles["background-color"] == dashboard_startup_color(selection, manager) == "#e4f1e4"
     assert created["images"][0]["asset_url"] in styles["background-image"]
 
     assert manager.delete_theme(created["id"]) is True
     assert manager.resolve("sensorius", selection) is None
+    assert dashboard_startup_color(selection, manager) == "#c4dcf8"
     assert not (tmp_path / "theme_assets" / created["id"]).exists()
 
 

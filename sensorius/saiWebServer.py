@@ -22,13 +22,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from .saiUtils import printDM, debug_enabled
-from .saiThemeManager import ThemeManager
+from .saiThemeManager import ThemeManager, DASHBOARD_STARTUP_COLORS, dashboard_startup_color
 import inspect
 
 MODULE = "saiWebServer"
 DEBUG = debug_enabled(MODULE)
 _IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v5.png"}
-NATIVE_WINDOW_BACKGROUND = "#dff5e8"
+NATIVE_WINDOW_BACKGROUND = DASHBOARD_STARTUP_COLORS["leaf"]
 DESKTOP_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-icon.png"
 MACOS_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-macos-icon.png"
 MACOS_ICNS_PATH = Path(__file__).resolve().parent / "resources" / "Sensorius.icns"
@@ -41,6 +41,13 @@ MACOS_LSREGISTER = Path(
     "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
     "LaunchServices.framework/Support/lsregister"
 )
+
+
+def normalize_native_background(value: object) -> str:
+    """Accept only a six-digit theme color for the initial native canvas."""
+    if isinstance(value, str) and len(value) == 7 and value[0] == "#" and all(char in "0123456789abcdefABCDEF" for char in value[1:]):
+        return value.lower()
+    return NATIVE_WINDOW_BACKGROUND
 
 
 def _desktop_exec_arg(value: str) -> str:
@@ -305,7 +312,7 @@ class WebServerController:
             self.port = 8000
 
         # ultra-light health route for readiness checks
-        self.app.add_api_route("/healthz", lambda: PlainTextResponse("ok"), methods=["GET"])
+        self.app.add_api_route("/healthz", self._health_response, methods=["GET"])
         
         # Compression (nice win for templates/js/css)
         self.app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -399,6 +406,16 @@ class WebServerController:
         # This blocks until server exits
         await self.server.serve()
 
+    def _health_response(self):
+        """Keep readiness text stable and advertise the selected startup color."""
+        color = NATIVE_WINDOW_BACKGROUND
+        try:
+            selection = self.settings.get_setting("Display", "background_theme", "leaf")
+            color = normalize_native_background(dashboard_startup_color(selection, self.theme_manager))
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+        return PlainTextResponse("ok", headers={"X-Sensorius-Background": color, "Cache-Control": "no-store"})
+
     def is_ready(self):
         server = getattr(self, "server", None)
         return bool(getattr(server, "started", False))
@@ -433,11 +450,13 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
 
     # --- Wait for server readiness ---
     server_ready = False
+    startup_background = NATIVE_WINDOW_BACKGROUND
     for attempt in range(retries):
         try:
             async with httpx.AsyncClient() as client:
                 r = await client.get(health_url, timeout=3.0)
                 if r.status_code == 200:
+                    startup_background = normalize_native_background(getattr(r, "headers", {}).get("X-Sensorius-Background"))
                     if DEBUG:
                         printDM(f"Web server ready after {attempt+1} attempts", location="saiWebServer")
                     server_ready = True
@@ -472,8 +491,10 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
             x=_int_env("SENSORIUS_GUI_X", 0),
             y=_int_env("SENSORIUS_GUI_Y", 48),
             resizable=True, frameless=False, confirm_close=True,
-            background_color=NATIVE_WINDOW_BACKGROUND,
+            background_color=startup_background,
         )
+        from .saiAutomationFileDialogs import attach_automation_file_dialogs
+        attach_automation_file_dialogs(window, base_url)
         from .saiNativeScrollProfile import attach_native_scroll_profile
         attach_native_scroll_profile(window)
         if DEBUG:

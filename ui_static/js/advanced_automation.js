@@ -271,6 +271,7 @@ async function changeAutomationGroup(modal, group, choice) {
     modal.querySelector("#btnAddAutomationGroup").disabled = false;
     modal.querySelector("#btnNewFromList").disabled = false;
     modal.querySelector("#btnAutomationLibrary").disabled = false;
+    modal.querySelectorAll("#btnExportAutomations, #btnImportAutomations").forEach(button => { button.disabled = false; });
     updateGroupSelection(modal);
   }
 }
@@ -1594,6 +1595,23 @@ window.initAdvancedAutomationModal = async function (modalEl) {
         btnLibrary.disabled = false;
       }
     };
+    for (const [id, operation] of [["btnExportAutomations", "export"], ["btnImportAutomations", "import"]]) {
+      const button = rootForQuery.querySelector(`#${id}`);
+      if (button) button.onclick = async () => {
+        try {
+          const url = new URL("./automation_transfer.js", import.meta.url);
+          url.search = new URL(import.meta.url).search;
+          const transfer = await import(url.href);
+          await transfer.runAutomationTransfer(modalRoot, operation, async () => {
+            await loadAutomationsListInto(modalRoot, {keepChooser: true, throwOnError: true});
+          });
+          updateGroupSelection(modalRoot);
+        } catch (error) {
+          const status = modalRoot.querySelector("#automationArrangeStatus");
+          if (status) status.textContent = error.message || "Unable to open automation file tools.";
+        }
+      };
+    }
     selectedGroup = null;
     const btnAddGroup = rootForQuery.querySelector("#btnAddAutomationGroup");
     const btnRemoveGroup = rootForQuery.querySelector("#btnRemoveAutomationGroup");

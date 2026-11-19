@@ -108,8 +108,14 @@ delayed** above the dashboard. Existing values remain visible while automatic
 retries continue; the notice clears after a successful update. Expanding
 metrics or changing their display uses the latest received values.
 
-Both native desktop launch paths use a non-white initial canvas matching the
-default dashboard base color. The dashboard loads its stylesheets before chart
+Both native desktop launch paths use the saved Sensorius Dashboard Theme's
+panel palette color for the initial canvas: Fruit uses pale peach, Root pale
+earth, Leaf Crop pale green, Flower lavender, and Leaf pale blue. Custom themes
+use the selected image's panel palette color. This matches the dashboard cards
+and settings rather than the darker fallback behind the background photograph. The existing `/healthz`
+readiness response supplies this color in `X-Sensorius-Background`, keeping its
+`ok` body and avoiding an extra startup request. Older servers or invalid color
+headers fall back to the default Leaf pale blue. The dashboard loads its stylesheets before chart
 libraries and downloads those libraries with ordered deferred execution. The
 styled viewport can paint while chart downloads are pending; gauges and charts
 initialize after their dependencies arrive. Slow CDN access can still delay

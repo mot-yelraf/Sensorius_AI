@@ -112,6 +112,25 @@ THEME_PALETTES = {
 }
 
 
+DASHBOARD_STARTUP_COLORS = {
+    "leaf": "#c4dcf8",
+    "root": "#efe2c6",
+    "leaf_crop": "#dcefd4",
+    "flower": "#ccccff",
+    "fruit": "#fde1d3",
+}
+
+
+def dashboard_startup_color(selection: object, manager: "ThemeManager") -> str:
+    """Return the selected dashboard panel color for the native startup canvas."""
+    raw = str(selection or "leaf").strip().lower()
+    if is_custom_theme_selection(raw):
+        resolved = manager.resolve("sensorius", raw)
+        if resolved:
+            return resolved["palette"]["panel"]
+    return DASHBOARD_STARTUP_COLORS.get(raw.replace("-", "_"), DASHBOARD_STARTUP_COLORS["leaf"])
+
+
 class ThemeValidationError(ValueError):
     """Report invalid custom-theme metadata or image content."""
 
@@ -296,6 +315,7 @@ class ThemeManager:
         if section == "sensorius":
             return {
                 **common,
+                "background-color": palette["panel"],
                 "--dashboard-card-bg": palette["panel"],
                 "--dashboard-card-border": palette["border"],
                 "--dashboard-card-text": palette["text"],

@@ -844,6 +844,67 @@ def register_switch_routes(
             return JSONResponse({"error": "Unable to read Advanced automations."}, status_code=500)
 
 
+    @router.get("/advanced/automations/export", response_class=JSONResponse)
+    async def export_saved_automations():
+        """Prepare a readable snapshot without changing runtime settings."""
+        from .saiAutomationManager import AutomationManager
+        from .saiAutomationTransfer import export_document
+        try:
+            def prepare():
+                data = AutomationManager("automation_settings").load("__all__")
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                timezone_name = str(settings.get_setting("Astral", "TIMEZONE", "") or settings.get_setting("Time", "TZ", "UTC") or "UTC")
+                filename, content = export_document(data, now=datetime.now(ZoneInfo(timezone_name)))
+                return {"filename": filename, "content": content}
+            return await asyncio.to_thread(prepare)
+        except Exception as exc:
+            printDM(f"Automation export failed: {exc}", location=MODULE)
+            return JSONResponse({"error": "Unable to export saved automations. Check the saved rule definitions."}, status_code=500)
+
+    async def read_automation_transfer(request: Request):
+        """Bound the upload before parsing or validating its contents off-thread."""
+        from .saiAutomationTransfer import MAX_BYTES, TransferFormatError, parse_document
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw) + len(chunk) > MAX_BYTES:
+                raise TransferFormatError("size")
+            raw.extend(chunk)
+        return await asyncio.to_thread(parse_document, bytes(raw))
+
+    @router.post("/advanced/automations/import/preview", response_class=JSONResponse)
+    async def preview_automation_import(request: Request):
+        """Validate the whole file and describe it without writing any rules."""
+        from .saiAutomationTransfer import ERROR_MESSAGES, TransferFormatError
+        try:
+            document = await read_automation_transfer(request)
+            return {"automation_count": len(document["automations"]), "group_count": len(document["groups"])}
+        except TransferFormatError as exc:
+            return JSONResponse({"error": ERROR_MESSAGES.get(exc.code, ERROR_MESSAGES["structure"])}, status_code=400)
+        except Exception as exc:
+            printDM(f"Automation preview failed: {exc}", location=MODULE)
+            return JSONResponse({"error": "Unable to validate this automation file."}, status_code=500)
+
+    @router.post("/advanced/automations/import", response_class=JSONResponse)
+    async def import_saved_automations(request: Request):
+        """Revalidate and atomically append disabled copies after confirmation."""
+        import uuid
+        from .saiAutomationManager import AutomationManager
+        from .saiAutomationTransfer import ERROR_MESSAGES, TransferFormatError
+        try:
+            batch_id = str(uuid.UUID(request.headers.get("X-Automation-Import-Batch", "")))
+        except ValueError:
+            return JSONResponse({"error": "Import requires a valid batch ID. Select the file again."}, status_code=400)
+        try:
+            document = await read_automation_transfer(request)
+            ids = await asyncio.to_thread(AutomationManager("automation_settings").import_transfer_rules, document, batch_id)
+            return {"ok": True, "rule_ids": ids}
+        except TransferFormatError as exc:
+            return JSONResponse({"error": ERROR_MESSAGES.get(exc.code, ERROR_MESSAGES["structure"])}, status_code=400)
+        except Exception as exc:
+            printDM(f"Automation file import failed: {exc}", location=MODULE)
+            return JSONResponse({"error": "Unable to import this automation file. Nothing was replaced."}, status_code=500)
+
     @router.get("/advanced/automation-library", response_class=JSONResponse)
     async def automation_library_catalog():
         """Describe the read-only starter catalog and current destination groups."""

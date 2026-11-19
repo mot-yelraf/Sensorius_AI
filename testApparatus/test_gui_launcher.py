@@ -11,6 +11,8 @@ import struct
 import subprocess
 import sys
 import zipfile
+
+import pytest
 from types import ModuleType, SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -462,7 +464,8 @@ def test_window_geometry_ignores_invalid_overrides(monkeypatch):
     assert geometry["y"] == 48
 
 
-def test_service_gui_uses_nonwhite_initial_canvas(monkeypatch):
+@pytest.mark.parametrize("color", [None, "#6f5e48", "#fde1d3"])
+def test_service_gui_uses_selected_initial_canvas(monkeypatch, color):
     calls = []
     monkeypatch.setitem(sys.modules, 'webview', SimpleNamespace(
         create_window=lambda *args, **kwargs: calls.append(kwargs) or SimpleNamespace(),
@@ -470,14 +473,15 @@ def test_service_gui_uses_nonwhite_initial_canvas(monkeypatch):
     ))
     monkeypatch.setattr(saiGuiLauncher.sys, 'platform', 'linux')
     monkeypatch.setenv('DISPLAY', ':0')
-    monkeypatch.setattr(saiGuiLauncher, '_wait_for_health', lambda url: True)
+    monkeypatch.setattr(saiGuiLauncher, '_wait_for_health', lambda url: color or True)
     monkeypatch.setattr(saiGuiLauncher, 'configure_linux_app_identity', lambda: None)
     monkeypatch.setattr(saiGuiLauncher, 'attach_native_scroll_profile', lambda window: None)
     assert saiGuiLauncher.main() == 0
-    assert calls[0]['background_color'] == saiWebServer.NATIVE_WINDOW_BACKGROUND
+    assert calls[0]['background_color'] == (color or saiWebServer.NATIVE_WINDOW_BACKGROUND)
 
 
-def test_embedded_gui_uses_same_nonwhite_initial_canvas(monkeypatch):
+@pytest.mark.parametrize("color", [None, "#6f5e48", "#fde1d3"])
+def test_embedded_gui_uses_selected_initial_canvas(monkeypatch, color):
     import asyncio
     import httpx
     import sensorius.saiGuiEnvironment as gui_environment
@@ -501,7 +505,7 @@ def test_embedded_gui_uses_same_nonwhite_initial_canvas(monkeypatch):
 
         async def get(self, url, **kwargs):
             assert url.endswith('/healthz')
-            return SimpleNamespace(status_code=200)
+            return SimpleNamespace(status_code=200, headers={"X-Sensorius-Background": color} if color else {})
 
     async def no_delay(seconds):
         return None
@@ -509,4 +513,49 @@ def test_embedded_gui_uses_same_nonwhite_initial_canvas(monkeypatch):
     monkeypatch.setattr(httpx, 'AsyncClient', Client)
     monkeypatch.setattr(asyncio, 'sleep', no_delay)
     assert asyncio.run(saiWebServer.launch_webview()) is window
-    assert calls[0]['background_color'] == saiWebServer.NATIVE_WINDOW_BACKGROUND
+    assert calls[0]['background_color'] == (color or saiWebServer.NATIVE_WINDOW_BACKGROUND)
+
+
+@pytest.mark.parametrize("header,expected", [(None, "#c4dcf8"), ("#6F5E48", "#6f5e48"), ("not-a-color", "#c4dcf8"), ("#fff", "#c4dcf8")])
+def test_service_readiness_reads_validated_startup_color(monkeypatch, header, expected):
+    class Response:
+        status = 200
+        headers = {"X-Sensorius-Background": header} if header else {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    requests = []
+    def open_url(url, **kwargs):
+        requests.append(url)
+        return Response()
+    monkeypatch.setattr(saiGuiLauncher.urllib.request, "urlopen", open_url)
+    assert saiGuiLauncher._wait_for_health("http://127.0.0.1:8000/") == expected
+    assert requests == ["http://127.0.0.1:8000/healthz"]
+
+
+def test_readiness_preserves_ok_body_and_updates_saved_theme_color():
+    from sensorius.saiThemeManager import DASHBOARD_STARTUP_COLORS
+    controller = saiWebServer.WebServerController.__new__(saiWebServer.WebServerController)
+    selection = ["leaf"]
+    controller.settings = SimpleNamespace(get_setting=lambda *args: selection[0])
+    controller.theme_manager = SimpleNamespace(resolve=lambda *args: {"palette": {"panel": "#fde1d3"}})
+    for theme, color in {**DASHBOARD_STARTUP_COLORS, "custom:" + "a" * 32 + ":" + "b" * 32: "#fde1d3", "unknown": "#c4dcf8"}.items():
+        selection[0] = theme
+        response = controller._health_response()
+        assert response.status_code == 200 and response.body == b"ok"
+        assert response.headers["X-Sensorius-Background"] == color
+        assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_builtin_startup_colors_match_dashboard_panel_palette():
+    from sensorius.saiThemeManager import DASHBOARD_STARTUP_COLORS
+    css = (saiWebServer.PROJECT_ROOT / "ui_static" / "css" / "app.css").read_text()
+    for theme, color in DASHBOARD_STARTUP_COLORS.items():
+        selector = "body.dashboard-page{" if theme == "leaf" else "body.dashboard-page.dashboard-theme-" + theme.replace("_", "-") + "{"
+        rule = css.split(selector, 1)[1].split("}", 1)[0]
+        assert "--dashboard-card-bg:" + color in rule
+    assert DASHBOARD_STARTUP_COLORS["fruit"] == "#fde1d3"
