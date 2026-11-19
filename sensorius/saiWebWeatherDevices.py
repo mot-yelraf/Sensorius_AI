@@ -1,7 +1,7 @@
 """Register weather device setup independently of hardware acquisition.
 
 Settings mutations follow the protected-access checks used by device routes;
-USB reads remain in supervised ingestion, never in an HTTP request handler.
+USB reads run in bounded service workers, serialized with supervised ingestion.
 """
 
 import asyncio
@@ -58,12 +58,35 @@ def register_weather_device_routes(router, *, services, settings_factory, requir
     async def save(request: Request):
         return await mutate(request)
 
+    @router.post("/acurite/test")
+    async def test(request: Request):
+        require_protected_access(request, require_csrf=True)
+        return await _test_console(request, lambda: service(request), "AcuRite USB")
+
     @router.post("/acurite/disable")
     async def disable(request: Request):
         return await mutate(request, disable=True)
 
     for kind in ("davis", "oregon"):
         _register_usb_routes(router, kind, services, require_protected_access, invalidate_dashboard_caches)
+
+
+async def _test_console(request, get_service, label):
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict) or payload.get("enabled") is not True:
+            return JSONResponse({"ok": False, "error": "Select Enable before testing the console."}, status_code=400)
+        current = get_service()
+        if current is None:
+            return JSONResponse({"ok": False, "error": "Console service unavailable."}, status_code=503)
+        if await current.test_retrieval(payload):
+            return JSONResponse({"ok": True, "message": f"{label} data retrieval succeeded."})
+        return JSONResponse({"ok": False, "error": f"{label} data retrieval failed: no valid live data returned. Check the connection, console settings and USB access."}, status_code=502)
+    except (ValueError, TypeError):
+        return JSONResponse({"ok": False, "error": "Invalid console configuration. Check the model, serial port, baud rate, USB serial and retrieval interval (60–3600 seconds)."}, status_code=400)
+    except Exception as exc:
+        printDM(f"{label} test failed: {exc}", location=__name__)
+        return JSONResponse({"ok": False, "error": f"{label} data retrieval failed. Check USB access and the Sensorius log."}, status_code=502)
 
 
 def _register_usb_routes(router, kind, services, require_access, invalidate):
@@ -99,6 +122,11 @@ def _register_usb_routes(router, kind, services, require_access, invalidate):
     async def disable(request: Request):
         return await mutate(request, disable=True)
 
+    async def test(request: Request):
+        require_access(request, require_csrf=True)
+        return await _test_console(request, lambda: getattr(services, f"{kind}_service", None), FAMILIES[kind][1])
+
     router.add_api_route(f"/{kind}/status", status, methods=["GET"])
     router.add_api_route(f"/{kind}/save", save, methods=["POST"])
+    router.add_api_route(f"/{kind}/test", test, methods=["POST"])
     router.add_api_route(f"/{kind}/disable", disable, methods=["POST"])

@@ -1,11 +1,16 @@
 # AcuRite USB consoles
 
-In **General Settings > Add Device > AcuRite USB Console**, choose the configured
-console family, optionally enter its USB serial, select a retrieval interval
-(60–3600 seconds), and choose **Save Console**. Saving enables acquisition even
-if the console is currently unplugged. Status reports connection and RF errors.
-Initial fields become available as their report types are received. Ecowitt and Nodus devices
-continue operating independently. **Disable** retains station settings/history.
+In **General Settings > Add Device > Weather Station > AcuRite USB Console**,
+choose the console family, optionally enter its USB serial, select a retrieval
+interval (60–3600 seconds), and select **Enable**. **Test** requests one bounded
+live-data retrieval with the entered values and reports success or failure in a
+toast and the bottom-left status message. Testing does not save settings,
+readings, or rain baselines. A valid decoded reply confirms retrieval; it does
+not guarantee every outdoor RF field is available. **Save** applies the settings
+and enabled state even if the console is currently unplugged. Clear **Enable**
+and save to stop acquisition while retaining station settings and history.
+Ecowitt and Nodus devices continue operating independently. Initial fields
+become available as their report types are received.
 
 Profiles cover 01536-RX/06056, 01025, 01035, 01036/01092/06006, 01525 and
 02032/02033/01093/06037 families. Shared USB IDs do not identify the model; select

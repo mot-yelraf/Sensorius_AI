@@ -122,7 +122,7 @@ for (const enabled of [false, true]) {
   test(`Weather Station checkboxes restore saved enabled=${enabled}`, async ({ page }) => {
     await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({ body: '' }));
     for (const kind of ['ecowitt', 'acurite', 'davis', 'oregon']) {
-      await page.route(`**/${kind}/status`, route => route.fulfill({ json: { enabled, inventory: [] } }));
+      await page.route(`**/${kind}/status`, route => route.fulfill({ json: { enabled, inventory: [], ...(kind === 'davis' ? {port: '/dev/cu.usbserial-test'} : {}) } }));
     }
     let disabled = false;
     await page.route('**/ecowitt/disable', route => {

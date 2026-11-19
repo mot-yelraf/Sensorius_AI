@@ -673,6 +673,18 @@
   align-self: end;
   min-height: 2.72rem;
 }
+#setupPiModal .weather-console-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .65rem;
+  align-items: center;
+  margin-top: .65rem;
+}
+#setupPiModal .weather-console-footer > .detail { margin: 0; text-align: left; overflow-wrap: anywhere; }
+#setupPiModal .weather-console-buttons { justify-content: flex-end; }
+@media (max-width: 700px) {
+  #setupPiModal .weather-console-footer { grid-template-columns: minmax(0, 1fr); }
+}
 #setupPiModal .locations-scroll,
 #setupPiModal .remove-scroll {
   max-height: 360px;
@@ -1789,10 +1801,15 @@
                     </div>
                     <div class="inline-actions weather-console-actions">
                       <label for="acurite-enabled"><input type="checkbox" id="acurite-enabled"> Enable</label>
-                      <button type="button" class="button green" id="btn-acurite-save">Save Console</button>
                     </div>
                   </div>
-                  <div id="acurite-status" class="detail" aria-live="polite"></div>
+                  <div class="weather-console-footer">
+                    <div id="acurite-status" class="detail" role="status" aria-live="polite"></div>
+                    <div class="inline-actions weather-console-buttons">
+                      <button type="button" class="button green" id="btn-acurite-test" disabled>Test</button>
+                      <button type="button" class="button green" id="btn-acurite-save">Save</button>
+                    </div>
+                  </div>
                 </div>
               </details>
               <details class="integration-block" id="add-davis-section" data-runtime-section="add-davis">
@@ -1803,11 +1820,16 @@
                     <div class="field-stack"><label for="davis-baud-rate">Console baud rate</label><select id="davis-baud-rate"><option value="1200">1200</option><option value="2400">2400</option><option value="4800">4800</option><option value="9600">9600</option><option value="14400">14400</option><option value="19200" selected>19200</option></select></div>
                     <div class="field-stack"><label for="davis-poll-interval">Data retrieval interval (seconds)</label><input id="davis-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
                     <div class="inline-actions weather-console-actions">
-                      <label for="davis-enabled"><input type="checkbox" id="davis-enabled"> Enable</label>
-                      <button type="button" class="button green" id="btn-davis-save">Save Console</button>
+                      <label for="davis-enabled"><input type="checkbox" id="davis-enabled" disabled> Enable</label>
                     </div>
                   </div>
-                  <div id="davis-status" class="detail" aria-live="polite"></div>
+                  <div class="weather-console-footer">
+                    <div id="davis-status" class="detail" role="status" aria-live="polite"></div>
+                    <div class="inline-actions weather-console-buttons">
+                      <button type="button" class="button green" id="btn-davis-test" disabled>Test</button>
+                      <button type="button" class="button green" id="btn-davis-save">Save</button>
+                    </div>
+                  </div>
                 </div>
               </details>
               <details class="integration-block" id="add-oregon-section" data-runtime-section="add-oregon">
@@ -1819,10 +1841,15 @@
                     <div class="field-stack"><label for="oregon-poll-interval">Snapshot interval (seconds)</label><input id="oregon-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
                     <div class="inline-actions weather-console-actions">
                       <label for="oregon-enabled"><input type="checkbox" id="oregon-enabled"> Enable</label>
-                      <button type="button" class="button green" id="btn-oregon-save">Save Console</button>
                     </div>
                   </div>
-                  <div id="oregon-status" class="detail" aria-live="polite"></div>
+                  <div class="weather-console-footer">
+                    <div id="oregon-status" class="detail" role="status" aria-live="polite"></div>
+                    <div class="inline-actions weather-console-buttons">
+                      <button type="button" class="button green" id="btn-oregon-test" disabled>Test</button>
+                      <button type="button" class="button green" id="btn-oregon-save">Save</button>
+                    </div>
+                  </div>
                 </div>
               </details>
                 </div>
@@ -3404,6 +3431,66 @@
     }
   }
 
+  const usbConsoleBusy = new Set();
+
+  function updateUsbConsoleControls(kind) {
+    const enabled = document.getElementById(`${kind}-enabled`);
+    const test = document.getElementById(`btn-${kind}-test`);
+    const save = document.getElementById(`btn-${kind}-save`);
+    const busy = usbConsoleBusy.has(kind);
+    const missingPort = kind === "davis" && !document.getElementById("davis-port")?.value.trim();
+    if (enabled) {
+      if (missingPort) enabled.checked = false;
+      enabled.disabled = busy || missingPort;
+      if (kind === "davis") enabled.title = missingPort ? "Enter the USB datalogger serial port before enabling this console." : "";
+    }
+    if (test) test.disabled = busy || missingPort || !enabled?.checked;
+    if (save) save.disabled = busy;
+  }
+
+  function usbConsolePayload(kind) {
+    const value = suffix => document.getElementById(`${kind}-${suffix}`)?.value;
+    const payload = {enabled: document.getElementById(`${kind}-enabled`).checked, poll_interval_sec: value("poll-interval")};
+    if (kind === "davis") Object.assign(payload, {port: value("port"), baud_rate: value("baud-rate")});
+    else Object.assign(payload, {model: value("model"), usb_serial: value("usb-serial").trim()});
+    return payload;
+  }
+
+  async function testUsbWeatherConsole(kind) {
+    if (usbConsoleBusy.has(kind) || !document.getElementById(`${kind}-enabled`)?.checked) return;
+    const button = `btn-${kind}-test`;
+    usbConsoleBusy.add(kind);
+    setButtonBusy(button, true, "Testing...");
+    updateUsbConsoleControls(kind);
+    setStatus(`${kind}-status`, "Requesting live console data...");
+    try {
+      const response = await fetch(`/${kind}/test`, {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(usbConsolePayload(kind))
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Console data retrieval failed.");
+      const message = data.message || "Console data retrieval succeeded.";
+      setStatus(`${kind}-status`, message);
+      showSettingsToast(message, "ok");
+    } catch (error) {
+      const message = error.message || "Console data retrieval failed.";
+      setStatus(`${kind}-status`, message);
+      showSettingsToast(message, "error");
+    } finally {
+      usbConsoleBusy.delete(kind);
+      setButtonBusy(button, false);
+      updateUsbConsoleControls(kind);
+    }
+  }
+
+  for (const kind of ["acurite", "davis", "oregon"]) {
+    document.getElementById(`${kind}-enabled`)?.addEventListener("change", () => updateUsbConsoleControls(kind));
+    document.getElementById(`btn-${kind}-test`)?.addEventListener("click", () => testUsbWeatherConsole(kind));
+  }
+
+  document.getElementById("davis-port")?.addEventListener("input", () => updateUsbConsoleControls("davis"));
+  updateUsbConsoleControls("davis");
+
   async function loadUsbWeatherStatus(kind) {
     try {
       const resp = await fetch(`/${kind}/status`, { cache: "no-store" });
@@ -3415,6 +3502,7 @@
         if (element) element.value = data[field] ?? fallback;
       }
       document.getElementById(`${kind}-enabled`).checked = data.enabled === true;
+      updateUsbConsoleControls(kind);
       setStatus(`${kind}-status`, [data.label, data.state, data.last_error].filter(Boolean).join(" | "));
     } catch (e) {
       setStatus(`${kind}-status`, e.message || "Unable to load console status.");
@@ -3424,12 +3512,12 @@
   async function saveUsbWeatherConsole(kind) {
     const button = `btn-${kind}-save`;
     const enabled = document.getElementById(`${kind}-enabled`).checked;
+    if (usbConsoleBusy.has(kind)) return;
+    usbConsoleBusy.add(kind);
     setButtonBusy(button, true, "Saving...");
+    updateUsbConsoleControls(kind);
     try {
-      const value = suffix => document.getElementById(`${kind}-${suffix}`)?.value;
-      const payload = { enabled, poll_interval_sec: value("poll-interval") };
-      if (kind === "davis") Object.assign(payload, { port: value("port"), baud_rate: value("baud-rate") });
-      else Object.assign(payload, { model: value("model"), usb_serial: value("usb-serial") });
+      const payload = usbConsolePayload(kind);
       const resp = await fetch(`/${kind}/save`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
@@ -3439,7 +3527,9 @@
     } catch (e) {
       setStatus(`${kind}-status`, e.message || "Unable to save console settings.");
     } finally {
+      usbConsoleBusy.delete(kind);
       setButtonBusy(button, false);
+      updateUsbConsoleControls(kind);
     }
   }
 
@@ -3456,6 +3546,7 @@
       document.getElementById("acurite-usb-serial").value = data.usb_serial || "";
       document.getElementById("acurite-poll-interval").value = data.poll_interval_sec || 60;
       document.getElementById("acurite-enabled").checked = data.enabled === true;
+      updateUsbConsoleControls("acurite");
       setStatus("acurite-status", [data.label, data.state, data.last_error].filter(Boolean).join(" | "));
     } catch (e) {
       setStatus("acurite-status", e.message || "Unable to load AcuRite status.");
@@ -3465,16 +3556,14 @@
   async function saveAcuriteConsole() {
     const button = "btn-acurite-save";
     const enabled = document.getElementById("acurite-enabled").checked;
+    if (usbConsoleBusy.has("acurite")) return;
+    usbConsoleBusy.add("acurite");
     setButtonBusy(button, true, "Saving...");
+    updateUsbConsoleControls("acurite");
     try {
       const resp = await fetch("/acurite/save", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled,
-          model: document.getElementById("acurite-model").value,
-          usb_serial: document.getElementById("acurite-usb-serial").value.trim(),
-          poll_interval_sec: document.getElementById("acurite-poll-interval").value
-        })
+        body: JSON.stringify(usbConsolePayload("acurite"))
       });
       const data = await resp.json();
       if (!resp.ok || !data.ok) throw new Error(data.error || "Unable to save AcuRite settings.");
@@ -3485,7 +3574,9 @@
     } catch (e) {
       setStatus("acurite-status", e.message || "Unable to save AcuRite settings.");
     } finally {
+      usbConsoleBusy.delete("acurite");
       setButtonBusy(button, false);
+      updateUsbConsoleControls("acurite");
     }
   }
 

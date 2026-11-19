@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 from .saiUtils import printDM
 from .saiWeatherStation import ensure_station_settings, StationReportingHealth
-from .weather_adapters.davis import BAUD_RATES, DavisVueAdapter, validate_port
-from .weather_adapters.wmr100 import Wmr100UsbAdapter, normalize_model
+from .weather_adapters.davis import DavisVueAdapter
+from .weather_adapters.wmr100 import Wmr100UsbAdapter
 from .weather_adapters.observations import ChannelCapability, persist_observation
 from .weather_adapters.metrics import derive_outdoor_air_metrics
 from .weather_adapters.acurite_calibration import calibrate_acurite_measurements, system_altitude_meters
@@ -87,30 +87,8 @@ class UsbWeatherIngest:
 
     def configure(self, payload):
         """Validate the complete family configuration before writing through settings."""
-        if not isinstance(payload, dict):
-            raise ValueError("Expected a console configuration object.")
-        enabled = payload.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise ValueError("Enabled must be a boolean.")
-        interval = payload.get("poll_interval_sec", 60)
-        if isinstance(interval, bool) or not str(interval).isdigit() or not 60 <= int(interval) <= 3600:
-            raise ValueError("Data retrieval interval must be 60–3600 seconds.")
-        updates = [(self.section, "POLL_INTERVAL_SEC", int(interval))]
-        if self.kind == "davis":
-            port = validate_port(payload.get("port", ""))
-            if not port:
-                raise ValueError("A Davis USB serial port is required.")
-            baud = payload.get("baud_rate", 19200)
-            if isinstance(baud, bool) or str(baud) not in {str(b) for b in BAUD_RATES}:
-                raise ValueError("Unsupported Davis baud rate")
-            updates.extend(((self.section, "PORT", port), (self.section, "BAUD_RATE", int(baud))))
-        else:
-            model = normalize_model(payload.get("model", "WMR100"))
-            serial = payload.get("usb_serial", "")
-            if not isinstance(serial, str) or len(serial) > 128 or any(ord(c) < 32 for c in serial):
-                raise ValueError("Invalid USB serial number.")
-            updates.extend(((self.section, "MODEL", model), (self.section, "USB_SERIAL", serial.strip())))
-        updates.append((self.section, "ENABLED", enabled))
+        from .saiWeatherConsoleTest import console_configuration
+        updates, _config = console_configuration(self.kind, payload)
         self.settings.set_many_in_memory(updates)
         self.settings.save_settings()
         self.adapter.reset()
@@ -123,6 +101,20 @@ class UsbWeatherIngest:
         """Serialize configuration changes with bounded acquisition off the event loop."""
         async with self._lock:
             await asyncio.to_thread(self.configure, payload)
+
+    async def test_retrieval(self, payload: dict) -> bool:
+        """Probe entered settings under the acquisition lock without persisting them."""
+        from .saiWeatherConsoleTest import console_configuration, probe_adapter, run_console_probe
+        _updates, config = console_configuration(self.kind, payload, timezone=self.settings.get_setting("Time", "TIMEZONE", "UTC"))
+        if payload.get("enabled") is not True:
+            raise ValueError("Select Enable before testing the console.")
+        async with self._lock:
+            def probe():
+                if self.kind == "oregon":
+                    self.adapter.reset()
+                temporary = FAMILIES[self.kind][3](config, self.adapter.transport)
+                return probe_adapter(temporary)
+            return await run_console_probe(probe)
 
     async def disable_device(self):
         """Disable acquisition and release USB ownership without removing history."""

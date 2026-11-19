@@ -61,30 +61,9 @@ class AcuRiteUsbIngest:
 
     def configure(self, payload):
         """Validate all input before saving configuration and acquisition state."""
-        if not isinstance(payload, dict):
-            raise ValueError("Expected an AcuRite configuration object.")
-        profile = console_profile(payload.get("model", "01536"))
-        serial = payload.get("usb_serial", "")
-        if not isinstance(serial, str) or len(serial) > 128 or any(ord(c) < 32 for c in serial):
-            raise ValueError("Invalid USB serial number.")
-        enabled = payload.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise ValueError("Enabled must be a boolean.")
-        interval = payload.get("poll_interval_sec", 60)
-        if isinstance(interval, bool):
-            raise ValueError("Data retrieval interval must be 60–3600 seconds.")
-        try:
-            interval = int(interval)
-        except (ValueError, TypeError, OverflowError) as exc:
-            raise ValueError("Data retrieval interval must be 60–3600 seconds.") from exc
-        if not 60 <= interval <= 3600:
-            raise ValueError("Data retrieval interval must be 60–3600 seconds.")
-        self.settings.set_many_in_memory([
-            ("AcuRite", "MODEL", profile.key),
-            ("AcuRite", "USB_SERIAL", serial.strip()),
-            ("AcuRite", "POLL_INTERVAL_SEC", interval),
-            ("AcuRite", "ENABLED", enabled),
-        ])
+        from .saiWeatherConsoleTest import console_configuration
+        updates, _config = console_configuration("acurite", payload)
+        self.settings.set_many_in_memory(updates)
         self.settings.save_settings()
         self._baseline = None
         self._baseline_loaded_for = None
@@ -101,6 +80,15 @@ class AcuRiteUsbIngest:
         """Serialize device setup with acquisition and keep disk writes off the loop."""
         async with self._configuration_lock:
             await asyncio.to_thread(self.configure, payload)
+
+    async def test_retrieval(self, payload: dict) -> bool:
+        """Test the entered configuration without saving settings or consuming live state."""
+        from .saiWeatherConsoleTest import console_configuration, probe_adapter, run_console_probe
+        _updates, config = console_configuration("acurite", payload)
+        if payload.get("enabled") is not True:
+            raise ValueError("Select Enable before testing the console.")
+        async with self._configuration_lock:
+            return await run_console_probe(lambda: probe_adapter(AcuRiteUsbReader(config, self.adapter.transport)))
 
     async def disable_device(self) -> None:
         """Apply disable after any bounded in-flight acquisition finishes."""

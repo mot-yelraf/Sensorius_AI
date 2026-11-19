@@ -1236,6 +1236,13 @@ without a manual browser refresh.
 
 #### Weather Station
 
+The AcuRite, Davis Vue, and Oregon Scientific USB sections have a status message
+at the bottom left and **Test** / **Save** buttons on the right. Select **Enable**
+to make **Test** available. Test requests fresh data using the entered settings
+and shows a success or failure toast. It does not save settings or readings;
+select **Save** separately to apply the configuration. A successful test confirms
+a decoded console reply, while outdoor sensor freshness is reported separately.
+
 <a id="ecowitt-gateway"></a>
 
 ##### Ecowitt Gateway
@@ -1316,8 +1323,8 @@ the normalized metric names accepted during the most recent discovery or poll.
 ![Add Device AcuRite USB Console pane](<../assets/screenshots/system-settings-add-device-acurite.png>)
 
 Open **General Settings > Add Device > Weather Station > AcuRite USB Console**. Choose your console
-family, optionally enter its USB serial, select the retrieval interval, and choose
-**Save Console**. Supported profiles include 01536-RX/06056, 01025, 01035,
+family, optionally enter its USB serial, select the retrieval interval, select
+**Enable**, and choose **Save**. Supported profiles include 01536-RX/06056, 01025, 01035,
 01036/01092/06006, 01525 and 02032/02033/01093/06037. Select mode 4 on consoles
 with a USB mode setting; the 01536 family uses it automatically. Connect the console
 to the Sensorius host and close other applications reading its USB interface,
@@ -1342,7 +1349,9 @@ for setup, supported fields and physical-validation limitations.
 Open **General Settings > Add Device > Weather Station > Davis Vue USB Console**.
 Use a Vantage Vue console with a compatible USB serial datalogger and one Vue
 ISS transmitter. Enter the USB datalogger’s serial port, match the console baud
-rate, set the retrieval interval, and select **Enable** and **Save Console**.
+rate, set the retrieval interval, and select **Enable** and **Save**. Enable is
+unavailable until the serial port contains a nonblank value. Clearing the port
+unchecks Enable and disables Test without changing saved settings.
 Leave the console’s setup screens and close WeatherLink, WeeWX, and other serial
 readers. Outdoor readings appear after reception progress is verified.
 
@@ -1353,7 +1362,7 @@ readers. Outdoor readings appear after reception progress is verified.
 Open **General Settings > Add Device > Weather Station > Oregon Scientific USB
 Console**. Connect a supported WMR100-family console and close WeeWX or other
 USB readers. Select the console model, set the snapshot interval, and select
-**Enable** and **Save Console**. Leave the USB serial number blank for one
+**Enable** and **Save**. Leave the USB serial number blank for one
 console, or specify it when several are attached.
 
 USB reports arrive continuously; the snapshot interval controls saved weather
