@@ -324,3 +324,9 @@ hardware requirements and protocol-fixture validation limits.
 Davis VUE barometric-pressure gauges use the sea-level pressure range, independent
 of the hub altitude. The separate absolute-pressure gauge uses the station-pressure
 range adjusted for hub altitude. These display ranges do not change stored readings.
+
+The AcuRite, Davis Vue and Oregon Scientific USB setup sections expose **Test**
+when **Enable** is checked. Test retrieves fresh console data using the entered
+values and reports the result in a toast without saving settings or readings.
+Use **Save** separately to apply configuration; see
+[USB console testing](weather_adapters.md#additional-usb-consoles).

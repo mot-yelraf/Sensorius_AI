@@ -167,6 +167,8 @@ progress. Oregon samples expire individually after
 Open **General Settings > Add Device > Weather Station**, then expand the console
 section. Davis requires a local port, for example `/dev/ttyUSB0` on Linux/Pi,
 `/dev/cu.usbserial-123` on macOS, or `COM3` on Windows. Baud defaults to 19200.
+Davis Enable is unavailable while the port is blank; clearing it unchecks Enable
+and disables Test without saving the change.
 Oregon requires selecting a supported model; leave the USB serial blank when
 only one matching console is attached. Close competing readers first. All four
 station types are disabled by default. The **Enable** checkbox shows the saved
@@ -179,6 +181,24 @@ a stream; its **Snapshot interval** controls saved snapshots rather than device
 requests. Ecowitt gateway weather polls and WeeWX archive imports also use their
 configured retrieval intervals. MQTT-backed weather reports arrive at the
 publisher's cadence; the hub does not poll those devices for readings.
+
+The USB console sections place the status message at the bottom left and
+**Test** / **Save** on the right. **Enable** must be checked to use Test. Testing
+uses the entered (possibly unsaved) connection values for one bounded live
+retrieval and reports a success/failure toast; Save separately persists settings.
+AcuRite uses its HID GET_REPORT path, Davis its live serial snapshot commands,
+and Oregon its live HID stream acquisition. A decoded measurement is required
+for success; cached status alone is insufficient. This tests console retrieval,
+not whether every RF sensor is reporting.
+
+Tests run off the event loop under the console's acquisition lock without
+writing settings, readings or rain baselines. A temporary adapter prevents a
+probe from consuming the saved console's cached observations. Oregon's active
+USB handle is released before the probe and the temporary handle is closed
+afterwards; normal acquisition then reconnects using the saved configuration.
+Cancellation retains the lock until bounded worker cleanup completes. Test does
+not change the scheduled retrieval interval or enable a previously disabled
+saved configuration.
 
 All host platforms use the existing PySerial/PyUSB dependencies. Oregon uses
 native HIDAPI in a bounded worker on macOS/Windows; retain the operating system's
