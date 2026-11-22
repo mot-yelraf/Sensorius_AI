@@ -4363,3 +4363,107 @@ def test_liveness_extraction_preserves_state_maps_and_passive_recovery(monkeypat
     assert ingest._get_liveness().last_mqtt_seen is replacement
     ingest.last_mqtt_seen.pop(host)
     assert host not in ingest._get_liveness().last_mqtt_seen
+
+
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("config_first", [False, True])
+def test_soil_derived_metadata_and_single_key_patches_mirror_only_targeted_probe(
+    tmp_path, monkeypatch, config_first, version,
+):
+    monkeypatch.chdir(tmp_path)
+    ingest = _build_ingest(monkeypatch)
+    host, sensor_id = "nodus-soil-test", "soil-test123"
+    soil = {"sensor_id": sensor_id, "device": "soil", "config_file": "sensor_soil.toml"}
+    primary = {"sensor_id": "co2-test123", "device": "co2", "config_file": "sensor_i2c.toml"}
+    compact = {
+        "schema": "nodus-meta/v1", "device_id": host, "sensor": primary, "sensors": [primary, soil],
+    }
+    companion = {
+        "schema": "nodus-meta-config/v1", "device_id": host, "sensor": primary,
+        "soil_derived": {"sensor_id": sensor_id, "version": version, "channels": {
+            channel: {"metric_prefix": f"{channel} ", "groups": {"SoilDeficit": [wet, 18]}}
+            for channel, wet in (("CH1", 38), ("CH2", 44))
+        }},
+    }
+
+    def receipt(suffix, body, *, retain=False):
+        ingest._on_message(ingest.client, None, _Msg(f"nodus/{host}/{suffix}", json.dumps(body), retain=retain))
+
+    snapshots = [("meta", compact), ("meta/config", companion)]
+    if config_first:
+        snapshots.reverse()
+    for topic, payload in snapshots:
+        receipt(topic, payload, retain=True)
+
+    assert ingest.get_nodus_soil_derived(primary["sensor_id"]) == {}
+    channels = ingest.get_nodus_soil_derived(sensor_id)
+    manager = saiSensorSettingsManager.SensorSettingsManager()
+    if version != 1:
+        assert channels == {}
+        assert "CH1" not in manager.load(sensor_id).get("SoilDeficit", {})
+        return
+    assert channels["CH1"]["groups"]["SoilDeficit"]["SPD_WET_THRESHOLD_PCT"] == 38
+    assert manager.load(sensor_id)["SoilDeficit"]["CH2"]["SPD_WET_THRESHOLD_PCT"] == 44
+    values = {"SPD_WET_THRESHOLD_PCT": 41, "SPD_DRY_THRESHOLD_PCT": 19}
+    patch = {
+        "schema": "nodus-meta-patch/v1", "source": "calibration_set",
+        "device_id": host, "message_id": "soil-test",
+        "updates": [
+            {"sensor_id": sensor_id, "name": "sensor_soil.toml",
+             "section": "SoilDeficit.CH1", "key": key, "value": value}
+            for key, value in values.items()
+        ],
+    }
+    receipt("meta/patch", {**patch, "updates": patch["updates"][:1]}, retain=True)
+    receipt("meta/patch", patch)
+    assert "soil-test" not in ingest.meta_patch_by_message
+    assert manager.load(sensor_id)["SoilDeficit"]["CH1"]["SPD_WET_THRESHOLD_PCT"] == 38
+
+    for index, update in enumerate(patch["updates"]):
+        message_id = f"soil-test-{index}"
+        receipt("meta/patch", {**patch, "message_id": message_id, "updates": [update]})
+        assert ingest.meta_patch_by_message[message_id]["source"] == "calibration_set"
+        saved = manager.load(sensor_id)["SoilDeficit"]
+        assert saved["CH1"][update["key"]] == update["value"]
+        if index == 0:
+            assert saved["CH1"]["SPD_DRY_THRESHOLD_PCT"] == 18
+    assert ingest.get_nodus_soil_derived(sensor_id)["CH1"]["groups"]["SoilDeficit"] == values
+    assert saved["CH1"] == values
+    assert saved["CH2"] == {"SPD_WET_THRESHOLD_PCT": 44, "SPD_DRY_THRESHOLD_PCT": 18}
+
+    assert not ingest.publish_nodus_calibration(
+        host, action="soil_derived_apply", sensor_id=sensor_id, name="sensor_soil.toml",
+        payload={"channel": "CH1", "group": "SoilDeficit", "values": values},
+    )["ok"]
+    expected = [
+        {"section": "SoilDeficit.CH1", "key": key, "value": value}
+        for key, value in values.items()
+    ]
+    for payload in expected:
+        assert ingest.publish_nodus_calibration(
+            host, action="soil_derived_apply", sensor_id=sensor_id, name="sensor_soil.toml",
+            payload=payload,
+        )["ok"]
+    publications = [item for item in ingest.client.pubs if item[0] == f"nodus/{host}/calibration/set"]
+    assert all((qos, retain) == (1, False) for _, _, qos, retain in publications)
+    envelopes = [json.loads(payload) for _, payload, _, _ in publications]
+    assert [envelope["payload"] for envelope in envelopes] == expected
+    assert len({envelope["message_id"] for envelope in envelopes}) == 2
+    for envelope in envelopes:
+        message_id = envelope["message_id"]
+        payload = envelope["payload"]
+        receipt("calibration/ack", {"message_id": message_id, "accepted": True})
+        receipt("calibration/result", {
+            "message_id": message_id, "sensor_id": sensor_id, "name": "sensor_soil.toml",
+            "section": payload["section"], "key": payload["key"], "applied": True,
+            "updated": 1, "persistence_mode": "persisted",
+        })
+        assert ingest.calibration_ack_by_message[message_id]["accepted"]
+        result = ingest.calibration_result_by_message[message_id]
+        assert (result["section"], result["key"], result["updated"], result["persistence_mode"]) == (
+            payload["section"], payload["key"], 1, "persisted",
+        )
+
+    receipt("meta/config", {key: value for key, value in companion.items() if key != "soil_derived"}, retain=True)
+    assert ingest.get_nodus_soil_derived(sensor_id) == {}
+    assert manager.load(sensor_id)["SoilDeficit"]["CH1"] == values

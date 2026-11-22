@@ -124,6 +124,87 @@ window.initSystemCalibrationModal = async function(modalEl) {
     return results;
   }
 
+  const soilSaveReasons = new Map([
+    ["calibration_handler_pystack", "Nodus ran out of Python stack space while saving."],
+    ["calibration_handler_memory", "Nodus ran out of memory while saving."],
+    ["invalid_soil_derived_target", "Nodus rejected the selected soil sensor."],
+    ["invalid_soil_derived_values", "Nodus rejected the calibration values."],
+    ["soil_channel_not_found", "Nodus could not find the selected probe channel."],
+    ["unsupported_soil_group", "The probe does not support this calibration group."],
+    ["settings_not_writable", "Nodus settings are read-only."],
+    ["soil_derived_persistence_failed", "Nodus could not write the settings to storage."],
+  ]);
+  const soilGroups = Array.from(modalEl.querySelectorAll("[data-soil-derived-group]"));
+  const soilSaveButtons = modalEl.querySelectorAll("[data-soil-save]");
+  soilGroups.forEach(group => {
+    const button = group.querySelector("[data-soil-save]");
+    const status = group.querySelector("[data-soil-status]");
+    const inputs = Array.from(group.querySelectorAll("input[data-soil-key]"));
+    const lowestWeight = group.querySelector('[data-soil-key="SFI_MIN_WEIGHT_PCT"]');
+    const averageWeight = group.querySelector("[data-soil-average-weight]");
+    function updateAverageWeight() {
+      if (!lowestWeight || !averageWeight) return;
+      const weight = lowestWeight.valueAsNumber;
+      averageWeight.textContent = weight >= 0 && weight <= 100
+        ? `${Number((100 - weight).toFixed(10))}%`
+        : "—";
+    }
+    lowestWeight?.addEventListener("input", updateAverageWeight);
+    updateAverageWeight();
+    if (!button) return;
+    button.addEventListener("click", async () => {
+      const invalidInput = inputs.find(input => !input.validity.valid);
+      if (invalidInput) {
+        invalidInput.reportValidity();
+        setCalibrationStatus(status, invalidInput.validationMessage, "error", true);
+        return;
+      }
+      const values = Object.fromEntries(inputs.map(input => [input.dataset.soilKey, input.valueAsNumber]));
+      soilSaveButtons.forEach(control => { control.disabled = true; });
+      inputs.forEach(input => { input.readOnly = true; });
+      status.textContent = "Saving to Nodus…";
+      try {
+        const response = await fetch("/calibration/soil/derived", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sensor_id: sensorId,
+            channel: group.dataset.channel,
+            group: group.dataset.soilDerivedGroup,
+            temperature_unit: temperatureUnit,
+            values,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result?.status === "success" && result.values) {
+          inputs.forEach(input => {
+            const key = input.dataset.soilKey;
+            const value = result.values[key];
+            input.value = key.endsWith("_C") ? Number(displayTemperature(value).toFixed(10)) : value;
+          });
+          updateAverageWeight();
+          setCalibrationStatus(status, result.message || "Saved to Nodus.", "ok", true);
+        } else if (response.ok && result?.status === "pending") {
+          const message = result.message || "Nodus saved the settings. Waiting for the device update.";
+          setCalibrationStatus(status, message, "", true);
+        } else {
+          const reason = result?.message;
+          const deviceError = result?.device_error;
+          const translated = soilSaveReasons.get(deviceError);
+          const message = (translated && reason?.replace(`${deviceError}.`, translated))
+            || soilSaveReasons.get(reason) || reason || `Calibration save failed (HTTP ${response.status}).`;
+          setCalibrationStatus(status, message, "error", true);
+        }
+      } catch {
+        const message = "Could not confirm the save. Reopen calibration to check the current device values.";
+        setCalibrationStatus(status, message, "error", true);
+      } finally {
+        inputs.forEach(input => { input.readOnly = false; });
+        soilSaveButtons.forEach(control => { control.disabled = false; });
+      }
+    });
+  });
+
   if (devCalApplyBtn) {
     devCalApplyBtn.addEventListener("click", async () => {
       if (!sensorId) {

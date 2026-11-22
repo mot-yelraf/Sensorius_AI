@@ -469,6 +469,17 @@ Current implementation:
 - Nodus ignores empty payloads on `nodus/<device_id>/calibration/set`.
 - Nodus does not publish empty retained cleanup payloads to `/set` topics.
 
+## Per-probe derived soil calibration
+
+Firmware that supports editing Soil Moisture Deficit, Soil Stress Index, and
+Soil Fertility Index inputs advertises `soil_derived.version = 1` in the
+retained `meta/config` companion, keyed to the soil sensor ID. Each calibration
+command writes one key to keep the Nodus II and III command path shallow.
+Sensorius uses the calibration topic family and mirrors the persisted per-probe
+values from metadata and accepted patches.
+See [the derived soil calibration MQTT contract](calibration_mqtt_contract.md#action-derived-soil-calibration)
+for the Nodus II and III handoff, required fields and acceptance checks.
+
 ## Ordinary `config/set`
 
 Canonical topic:

@@ -6,6 +6,7 @@ Scope:
 
 - MQTT calibration writes
 - MQTT calibration status queries
+- Per-probe derived soil settings for firmware advertising the capability below
 - MQTT-triggered soil pH sampling sessions for automatic offset calculation on Nodus
 - MQTT progress/result events published by Nodus
 
@@ -78,7 +79,7 @@ All calibration commands use the same top-level envelope:
 Required fields:
 
 - `message_id`: client-generated unique id for correlation
-- `action`: one of `apply`, `set`, `update`, `status`, `start`, `soil_ph_session_start`, `soil_ph_session_cancel`
+- `action`: one of `apply`, `set`, `update`, `status`, `start`, `soil_ph_session_start`, `soil_ph_session_cancel`, `soil_derived_apply`
 
 `payload` is required for calibration writes and optional for `status` and
 `start`.
@@ -165,6 +166,236 @@ Behavior:
 - `soil_moisture_offset` is materialized as
   `Calibration.Device.SOIL_MOIST_CAL_VAL`; Sensorius still reads legacy
   `SOIL_TEMP_MOIST_VAL` shadows for compatibility
+
+## Action: Derived Soil Calibration
+
+`soil_derived_apply` is the firmware handoff for Nodus II and III. Sensorius
+displays and edits the settings advertised by `soil_derived.version = 1`.
+Each command writes a single key. Sensor offsets and pH sessions use their existing commands.
+Nodus owns the calculations and the authoritative settings.
+
+### Discovery and telemetry
+
+Publish the effective settings as a top-level `soil_derived` block in the
+existing retained `nodus/<physical_device_id>/meta/config` companion
+(`schema = "nodus-meta-config/v1"`). Publish it with MQTT retain enabled on
+connect and reconnect so a Sensorius restart can recover the snapshot.
+Keep compact `/meta` focused on identity
+and advertise `config_topic` there as usual. In compact `/meta`, identify the
+soil sensor in `sensor` or `sensors[]` with its matching `sensor_id` and
+`config_file = "sensor_soil.toml"`. The companion's normal primary `sensor`
+block may describe a different sensor on the same host. The `soil_derived`
+block targets the soil sensor by its own `sensor_id`. The two retained
+packets can arrive in either order.
+
+```json
+{
+  "schema": "nodus-meta-config/v1",
+  "device_id": "nodus-lab01",
+  "soil_derived": {
+    "sensor_id": "soil-lab01",
+    "version": 1,
+    "channels": {
+      "CH1": {
+        "metric_prefix": "CH1 ",
+        "groups": {
+          "SoilDeficit": [38.0, 18.0],
+          "SoilStress": [15.0, 18.0, 24.0, 30.0, 70.0, 30.0],
+          "NPK": [20.0, 30.0, 70.0, 50.0]
+        }
+      },
+      "CH2": {
+        "metric_prefix": "CH2 ",
+        "groups": {
+          "SoilDeficit": [40.0, 20.0],
+          "SoilStress": [15.0, 18.0, 24.0, 30.0, 70.0, 30.0]
+        }
+      }
+    }
+  }
+}
+```
+
+List only active physical channels. Report a single probe under its physical
+channel even when it uses unprefixed telemetry. For a legacy unchannelized
+`[Modbus]` probe, use `CH1`. With one active probe, set `metric_prefix` to
+the empty string. With both probes, set it to `"CH1 "` and `"CH2 "`
+respectively, including the trailing space. The prefix describes existing
+telemetry only. The channel key remains the write target if probe count changes.
+
+The retained group arrays use the field order below. The arrays keep two
+fully configured probes within the metadata size budget for typical settings.
+Use the named keys in commands, patches and TOML.
+
+| Group | Array fields in wire order |
+| --- | --- |
+| `SoilDeficit` | `SPD_WET_THRESHOLD_PCT`, `SPD_DRY_THRESHOLD_PCT` |
+| `SoilStress` | `SSI_TEMP_LOW_CRIT_C`, `SSI_TEMP_LOW_OK_C`, `SSI_TEMP_HIGH_OK_C`, `SSI_TEMP_HIGH_CRIT_C`, `SSI_MOISTURE_WEIGHT_PCT`, `SSI_TEMP_WEIGHT_PCT` |
+| `NPK` | `N_TARGET`, `P_TARGET`, `K_TARGET`, `SFI_MIN_WEIGHT_PCT` |
+
+Include all effective fields for each supported group, including inherited
+values. Include `NPK` only for a `soil_7in1` channel. A missing live nutrient
+reading can suppress the index for an individual sample without changing
+the advertised capability. Omit `soil_derived` from the configuration companion
+when the firmware cannot handle this action. Replace the retained companion
+on reconnect, including after downgrade, so old capability data expires.
+
+Keep existing `/data` metric names, units and channel prefixes. Sensorius uses
+corrected moisture and temperature, nutrient readings and derived results from
+`/data`. Settings travel in metadata and patches. Continue to omit derived
+values for a sample when their required readings are unavailable. Publish an
+up-to-date retained configuration companion on boot and after successful
+changes, after queued command replies drain. This lets Sensorius recover
+missed patches and see saves made from the local Nodus UI.
+
+### Write command
+
+Publish non-retained with QoS 1 to
+`nodus/<physical_device_id>/calibration/set`. Capability version 1 uses
+one scalar setting per command. Keep the payload flat so Nodus II and III
+can handle writes within their Python stack limits. Only advertise version 1
+when this single-key handler is available.
+
+```json
+{
+  "message_id": "soil-5ac3f87f657a423090423820e8c40aa0",
+  "action": "soil_derived_apply",
+  "sensor_id": "soil-lab01",
+  "name": "sensor_soil.toml",
+  "payload": {
+    "section": "SoilDeficit.CH1",
+    "key": "SPD_WET_THRESHOLD_PCT",
+    "value": 43.0
+  }
+}
+```
+
+- Require a unique `message_id`, the exact soil `sensor_id` and `name`,
+  and one advertised section in the form `<group>.<channel>`. Require one
+  known setting key and a finite JSON number. Reject mismatched targets,
+  additional keys, grouped values, strings, booleans, NaN and infinities.
+- Validate the candidate probe settings after substituting the single value.
+  Moisture thresholds and weights are percentages in `[0, 100]`. Require
+  wet > dry. Temperature thresholds are absolute °C, with low critical <
+  low acceptable ≤ high acceptable < high critical. Require a positive sum
+  for the two stress weights. N/P/K targets in mg/kg must be positive. The
+  minimum-score weight must be in `[0, 100]`.
+- Persist the changed key and keep other keys, probes and groups intact. If a
+  probe still inherits its settings, derive its effective values from the shared
+  defaults and store only the requested override. Treat a valid no-op as a
+  successful single-key command and echo its effective value.
+- Sensorius skips unchanged values and chooses an order that keeps the
+  calculation valid at each intermediate step. Hold the physical host's
+  command lock and wait for the matching ACK, persisted result and patch
+  before sending the next key. On failure or missing confirmation, stop the
+  sequence and report progress. Earlier successful writes remain in effect.
+
+### Device storage and calculation
+
+Use the active `/sensor_soil.toml` file. Keep existing shared sections
+`[SoilDeficit]`, `[SoilStress]` and `[NPK]` as the compatibility baseline.
+Store probe overrides in nested sections such as `[SoilDeficit.CH1]`,
+`[SoilStress.CH1]` and `[NPK.CH1]`. Resolve keys without a probe override
+from the shared settings and existing firmware defaults. In particular,
+default `SFI_MIN_WEIGHT_PCT` to 50. Apply the same validation and persistence
+to the local Nodus calibration UI, and show the effective values and latest
+readings.
+
+- **Soil Moisture Deficit** uses corrected moisture. Compute
+  `100 × (wet − moisture) / (wet − dry)` and clamp to `[0, 100]`.
+- **Soil Stress Index** uses the channel's deficit and corrected temperature.
+  Temperature stress is zero inside the acceptable band, 100 at or beyond
+  the critical limits and linear in between. Average deficit and temperature
+  stress using the two weights divided by their sum. Require both readings
+  even when one weight is zero, as with existing firmware.
+- **Soil Fertility Index** uses the channel's N, P and K. Divide each reading by
+  its target and clamp each ratio to `[0, 1]`. Let `w = SFI_MIN_WEIGHT_PCT / 100`.
+  The index is `100 × (w × lowest_ratio + (1 − w) × average_ratio)`.
+  Round deficit and stress to one decimal place and fertility to a whole
+  percentage, matching the existing firmware.
+
+Prepare the validated runtime values before writing. Use a bounded settings
+transaction that preserves the previous file on write or rename failure and
+keeps the active settings aligned with the successful file commit. Make the
+values available to the next sample without reboot. A read-only filesystem,
+storage failure or inability to install the validated settings must produce a
+failed result. This action requires persistence before success. Keep the
+shallow command path and existing one-offset handlers for legacy calibration.
+
+### Replies and reconciliation
+
+Publish the normal non-retained `calibration/ack` on the physical device topic.
+`accepted: true` confirms receipt of the command envelope. Then publish the
+correlated non-retained `calibration/result` on the same physical device's
+topic. A success looks like this.
+
+```json
+{
+  "message_id": "soil-5ac3f87f657a423090423820e8c40aa0",
+  "sensor_id": "soil-lab01",
+  "name": "sensor_soil.toml",
+  "section": "SoilDeficit.CH1",
+  "key": "SPD_WET_THRESHOLD_PCT",
+  "applied": true,
+  "persistence_mode": "persisted",
+  "updated": 1,
+  "error": ""
+}
+```
+
+On failure, send `applied: false`, `updated: 0` and a short `error`, such as
+`invalid_soil_derived_values`, `soil_channel_not_found`,
+`unsupported_soil_group` or `settings_not_writable`. Do not emit a patch
+for a failed command. Duplicate message IDs should replay the original outcome
+without writing again or turning a rejected command into a success.
+
+After a successful result, publish a single non-retained
+`nodus/<physical_device_id>/meta/patch` containing the one saved key. The
+value should reflect the effective device value, including any firmware
+numeric representation differences.
+
+```json
+{
+  "schema": "nodus-meta-patch/v1",
+  "device_id": "nodus-lab01",
+  "message_id": "soil-5ac3f87f657a423090423820e8c40aa0",
+  "timestamp": 1795276800,
+  "source": "calibration_set",
+  "sections": ["SoilDeficit.CH1"],
+  "updates": [
+    {"sensor_id": "soil-lab01", "name": "sensor_soil.toml", "section": "SoilDeficit.CH1", "key": "SPD_WET_THRESHOLD_PCT", "value": 43.0}
+  ]
+}
+```
+
+For a save from the Nodus UI while MQTT is connected, publish one patch per
+changed key with `source = "calibration_local"` and refresh retained `meta/config`.
+When the local UI is running without MQTT, the next MQTT startup advertises
+the saved settings. Sensorius mirrors complete finite settings from retained
+metadata so older values can be reviewed and corrected. Sensorius checks each
+patch's scalar value and merges it into the cached settings and mirrored TOML.
+If a persisted result arrives without a matching patch, Sensorius reports how
+many writes the device reported saving and stops sending further writes.
+
+### Firmware acceptance checks
+
+- Upgrade a device with shared settings, including legacy `[Modbus]`, and
+  confirm the effective values and outputs match its pre-upgrade behavior.
+- Capture the request, ACK, persisted result, patch and refreshed retained
+  `meta/config` on the broker. Confirm that every command and patch contains
+  one key and each next command follows the prior result. Compare the next sample to
+  the formula using the advertised inputs, then reboot and confirm persistence.
+- Exercise both physical channels, including a 7-in-1 paired with a non-NPK
+  probe. Save a group on one probe and confirm the other probe's settings
+  and calculation are unaffected. Test CH2 as the only active probe.
+- Reject grouped commands, invalid keys or values, wrong targets, repeats of
+  rejected commands and writes to a read-only or failing filesystem. Fail a
+  later write in a sequence and confirm the earlier persisted keys remain in effect.
+- Exercise repeated saves and local calibration saves on the supported
+  boards. Check command latency, heap and Python stack headroom, and the
+  broker-visible ordering of responses, metadata and telemetry. Validate actual
+  encoded MQTT packet sizes with two 7-in-1 probes against the Pico2 W
+  1,460-byte packet guard, including the topic and protocol overhead.
 
 ## Action: Status
 

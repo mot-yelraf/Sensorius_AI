@@ -42,6 +42,34 @@ def _merge_nodus_pressure_calibration(doc: dict, calibration: object) -> bool:
     return True
 
 
+def _merge_soil_derived(doc: dict, channels) -> bool:
+    changed = False
+    for channel, row in (channels or {}).items():
+        for group, values in row["groups"].items():
+            changed = _merge_soil_group(doc, channel, group, values) or changed
+    return changed
+
+
+def _merge_soil_group(doc, channel, group, values):
+    if not isinstance(doc.get(group), dict):
+        doc[group] = {}
+    if doc[group].get(channel) == values:
+        return False
+    doc[group][channel] = values
+    return True
+
+
+def persist_soil_derived_update(sensor_id: str, channel: str, group: str, key: str, value: float) -> None:
+    """Mirror a device-confirmed soil calibration key through the settings manager."""
+    from .saiSensorSettingsManager import SensorSettingsManager
+
+    manager = SensorSettingsManager()
+    section = manager.load(sensor_id).get(group)
+    probe = section.get(channel) if isinstance(section, dict) else None
+    if not isinstance(probe, dict) or probe.get(key) != value:
+        manager.save(sensor_id, {group: {channel: {key: value}}})
+
+
 def persist_metadata(
     data_logger,
     info: dict,
@@ -363,6 +391,7 @@ def persist_metadata(
                             changed = True
 
                 changed = _merge_nodus_pressure_calibration(data, s.get("calibration")) or changed
+                changed = _merge_soil_derived(data, s.get("soil_derived")) or changed
                 if changed:
                     sensor_mgr.save(sensor_id, data)
                     if DEBUG:
@@ -414,6 +443,7 @@ def persist_metadata(
                         style_block[f"METRIC_{idx + 1}"] = remote_display_styles[idx] if idx < len(remote_display_styles) else "Graph24hr"
 
                 _merge_nodus_pressure_calibration(data, s.get("calibration"))
+                _merge_soil_derived(data, s.get("soil_derived"))
                 sensor_mgr.save(sensor_id, data)
             else:
                 data = OrderedDict()
@@ -450,6 +480,7 @@ def persist_metadata(
                         style_block[f"METRIC_{idx + 1}"] = remote_display_styles[idx] if idx < len(remote_display_styles) else "Graph24hr"
 
                 _merge_nodus_pressure_calibration(data, s.get("calibration"))
+                _merge_soil_derived(data, s.get("soil_derived"))
                 sensor_mgr.save(sensor_id, data)
             if DEBUG:
                 printDM(f"[itaot-settings] seeded sensor settings for {sensor_id}", location=MODULE)
