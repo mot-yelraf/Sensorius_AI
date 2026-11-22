@@ -135,8 +135,8 @@ def _normalize_planting(raw: dict[str, object], *, fallback_id: str = "") -> tup
             return None, "Invalid stage window."
         try:
             first, last = normalize_stage_window(window.get("start"), window.get("end"))
-        except ValueError as exc:
-            return None, str(exc)
+        except ValueError:
+            return None, "Enter both stage dates as YYYY-MM-DD, with the end date after the start date."
         if first:
             if first < start_date or (previous_end and first < previous_end):
                 return None, "Stage windows must start after the planting date and must not overlap."
