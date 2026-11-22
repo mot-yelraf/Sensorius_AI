@@ -404,6 +404,41 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_invalid_planting_stage_returns_fixed_guidance(monkeypatch):
+    from sensorius import saiAutomationLibrary
+
+    def fail_stage_validation(*_args):
+        raise ValueError("Internal date parser details")
+
+    monkeypatch.setattr(saiAutomationLibrary, "normalize_stage_window", fail_stage_validation)
+    app = FastAPI()
+    router = APIRouter()
+    calendar_app.register_biodynamic_calendar_routes(
+        router,
+        app=app,
+        settings=_Settings(),
+        data_logger=_Logger(),
+    )
+    app.include_router(router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/biodynamic-calendar-app/planting",
+            json={
+                "name": "Lettuce",
+                "start_date": "2026-09-04",
+                "stage_schedule": {"seedling": {"start": "2026-09-04", "end": "2026-09-12"}},
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_planting",
+        "reason": "Enter both stage dates as YYYY-MM-DD, with the end date after the start date.",
+    }
+
+
+@pytest.mark.asyncio
 async def test_user_storage_failures_return_service_unavailable():
     root = Path(__file__).resolve().parents[1]
 
