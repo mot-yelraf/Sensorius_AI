@@ -23,7 +23,11 @@ from .saiUtils import printDM, normalize_sensor_id
 MODULE = "saiWebRoutes"
 
 from dataclasses import dataclass
-from .saiInputUnits import calibration_input_offsets, calibration_presentation
+from .saiInputUnits import calibration_input_offsets, calibration_presentation, native_input_value
+from .saiSoilDerived import (
+    ACTION as SOIL_DERIVED_ACTION, CHANNELS, GROUPS, group_values,
+    ordered_soil_updates, soil_patch_update,
+)
 from .saiSensorSettingsManager import is_direct_local_sensor_id
 
 _SOIL_TEMP_CAL_KEYS = ("SOIL_TEMP_CAL_VAL",)
@@ -493,6 +497,7 @@ def register_calibration_routes(
         *,
         action: str,
         payload: dict | None = None,
+        target: dict | None = None,
         ack_timeout: float = _NODUS_CALIBRATION_ACK_TIMEOUT_SEC,
         result_timeout: float = _NODUS_CALIBRATION_RESULT_TIMEOUT_SEC,
     ) -> tuple[bool, str, dict | None, dict | None]:
@@ -500,7 +505,7 @@ def register_calibration_routes(
         if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
             return False, "MQTT ingest unavailable", None, None
 
-        target = _resolve_remote_sensor_target(sensor_id)
+        target = target or _resolve_remote_sensor_target(sensor_id)
         publish_result = ingest.publish_nodus_calibration(
             target["device_id"],
             action=action,
@@ -1296,6 +1301,105 @@ def register_calibration_routes(
                 "shadow_synced": shadow_synced,
             }
         )
+
+
+    @router.post("/calibration/soil/derived", response_class=JSONResponse)
+    async def apply_soil_derived_calibration(request: Request):
+        """Save changed fields to the identified Nodus probe one key at a time."""
+        def error(message, status_code, *, device_error=""):
+            body = {"status": "error", "message": message}
+            if device_error:
+                body["device_error"] = device_error
+            return JSONResponse(body, status_code=status_code)
+
+        try:
+            body = await request.json()
+        except ValueError:
+            return error("Invalid JSON payload.", 400)
+        if not isinstance(body, dict):
+            return error("Invalid soil calibration request.", 400)
+        sensor_id = body.get("sensor_id")
+        channel = body.get("channel")
+        group = body.get("group")
+        if not isinstance(sensor_id, str) or not sensor_id or channel not in CHANNELS:
+            return error("Select a soil sensor and physical channel.", 400)
+        if not isinstance(group, str) or group not in GROUPS:
+            return error("Unknown derived soil metric.", 400)
+        temperature_unit = body.get("temperature_unit", "°C")
+        if temperature_unit not in ("°C", "°F"):
+            return error("Unsupported soil temperature unit.", 400)
+        try:
+            values = group_values(group, body.get("values"))
+            if temperature_unit == "°F":
+                for key, _, unit in GROUPS[group][1]:
+                    if unit == "°C":
+                        values[key] = round(native_input_value(values[key], temperature_unit, unit), 10)
+            values = group_values(group, values, validate=True)
+        except (ValueError, OverflowError) as exc:
+            return error(str(exc), 400)
+
+        ingest = services.mqtt_ingest
+        get_soil = getattr(ingest, "get_nodus_soil_derived", None)
+        if not callable(get_soil):
+            return error("Nodus MQTT is unavailable.", 503)
+        target = ingest.resolve_nodus_sensor_target(sensor_id)
+        host = target["device_id"]
+        if not host:
+            return error("Nodus soil sensor is unavailable.", 409)
+
+        async with _get_host_lock(host):
+            current = get_soil(sensor_id).get(channel, {}).get("groups", {}).get(group)
+            if current is None or target["config_file"] != "sensor_soil.toml":
+                return error("Nodus has not advertised single-key calibration for this probe and metric.", 409)
+            try:
+                updates = ordered_soil_updates(group, current, values)
+            except ValueError as exc:
+                return error(str(exc), 409)
+
+            section = f"{group}.{channel}"
+            confirmed = dict(current)
+            for completed, (key, value) in enumerate(updates):
+                progress = (
+                    f" {completed} of {len(updates)} changed fields were confirmed."
+                    " Reopen calibration to check the current device values."
+                )
+                ok, message, ack, result = await _publish_remote_calibration_command(
+                    sensor_id, action=SOIL_DERIVED_ACTION, target=target,
+                    payload={"section": section, "key": key, "value": value},
+                )
+                if not ok:
+                    return error(f"{message}.{progress}", 502)
+                if any(reply.get("device_id") != host or reply.get("retain") for reply in (ack, result)):
+                    return error(f"Unexpected Nodus calibration reply.{progress}", 502)
+                if not result.get("applied"):
+                    device_error = result.get("error") or ""
+                    return error(
+                        f"{device_error or 'Nodus rejected the setting'}.{progress}", 409,
+                        device_error=device_error,
+                    )
+                if (result.get("sensor_id"), result.get("name"), result.get("section"),
+                    result.get("key"), result.get("persistence_mode"), result.get("updated")) != (
+                    sensor_id, target["config_file"], section, key, "persisted", 1
+                ):
+                    return error(f"Nodus did not confirm a persistent save for this field.{progress}", 502)
+
+                message_id = result["message_id"]
+                patch = await ingest.wait_for_nodus_meta_patch(message_id, source="calibration_set", timeout=3.0)
+                update = None
+                if patch and patch.get("device_id") == host and patch.get("message_id") == message_id:
+                    update = soil_patch_update(patch)
+                if update is None or update[:3] != (sensor_id, section, key):
+                    return JSONResponse({
+                        "status": "pending",
+                        "message": (
+                            f"Nodus reported saving {completed + 1} of {len(updates)} changed fields. "
+                            "Reopen calibration to check the current device values."
+                        ),
+                    }, status_code=202)
+                confirmed[key] = update[3]
+
+        message = "Saved to Nodus." if updates else "The Nodus settings are already up to date."
+        return {"status": "success", "message": message, "values": confirmed}
 
 
     @router.post("/calibration/soil/ph-buffer", response_class=JSONResponse)

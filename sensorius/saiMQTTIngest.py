@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 from . import saiNodusShadowPersistence as nodus_shadow
 from .saiNodusShadowPersistence import _merge_nodus_pressure_calibration
+from .saiSoilDerived import ACTION as SOIL_DERIVED_ACTION
+from .saiSoilDerived import normalize_soil_derived, soil_group_snapshot, soil_patch_update, soil_update_value
 import copy
 import json
 import re
@@ -1399,6 +1401,14 @@ class saiMQTTIngest:
         action_name = str(action or "").strip().lower()
         if not device or not action_name:
             return {"ok": False, "message_id": "", "topic": ""}
+        if action_name == SOIL_DERIVED_ACTION:
+            if not isinstance(payload, dict) or payload.keys() != {"section", "key", "value"}:
+                return {"ok": False, "message_id": "", "topic": ""}
+            try:
+                soil_update_value(payload["section"], payload["key"], payload["value"])
+            except (ValueError, OverflowError):
+                return {"ok": False, "message_id": "", "topic": ""}
+            message_id = message_id or f"soil-{uuid.uuid4().hex}"
         if not message_id:
             local_epoch = _local_epoch_seconds(self.settings)
             message_id = f"cal-{local_epoch}-{action_name}-{device[:24]}"
@@ -2933,6 +2943,28 @@ class saiMQTTIngest:
         row[field_name] = value
         return True
 
+    def _apply_soil_derived_patch(self, cache_key, meta, patch, target, *, retain):
+        if retain:
+            return False
+        sensor_id, section, key, value = target
+        group, _, channel = section.partition(".")
+        current = self._soil_derived_for_sensor(meta, sensor_id)
+        values = current.get(channel, {}).get("groups", {}).get(group)
+        if values is None:
+            return False
+
+        values[key] = value
+        meta["soil_derived"]["channels"][channel]["groups"][group] = soil_group_snapshot(group, values)
+        self.discovery_cache[cache_key] = meta
+        try:
+            nodus_shadow.persist_soil_derived_update(sensor_id, channel, group, key, value)
+        except Exception as exc:
+            printDM(f"[nodus-meta-patch] soil calibration shadow save failed: {exc}", location=MODULE)
+            return True
+        if patch.get("message_id"):
+            self._get_command_lifecycle().record_meta_patch(patch["message_id"], patch)
+        return True
+
     def _apply_nodus_meta_patch(
         self,
         patch: dict,
@@ -2985,6 +3017,11 @@ class saiMQTTIngest:
 
         message_id = str(patch.get("message_id") or "").strip()
         patch_source = str(patch.get("source") or "").strip()
+        soil_target = soil_patch_update(patch)
+        if soil_target is not None:
+            if patch.get("device_id") != topic_device_id:
+                return False, False
+            return self._apply_soil_derived_patch(cache_key, patched_meta, patch, soil_target, retain=retain), False
         applied_any = False
         system_patch_info: dict[str, object] = {"HOSTNAME": cache_key}
         system_patch_changed = False
@@ -3411,6 +3448,8 @@ class saiMQTTIngest:
         # Config companions and compact identity may arrive in either order.
         # Preserve only omitted configuration fields; explicit new values win.
         previous = self.discovery_cache.get(base) or {}
+        if "soil_derived" not in meta and "soil_derived" in previous:
+            meta["soil_derived"] = copy.deepcopy(previous["soil_derived"])
         previous_sensor = previous.get("sensor") or {}
         incoming_sensor = meta.get("sensor")
         if isinstance(incoming_sensor, dict) and isinstance(previous_sensor, dict):
@@ -3566,6 +3605,7 @@ class saiMQTTIngest:
                 "display_metrics": display_metrics or None,
                 "display_styles": display_styles,
                 "calibration": sensor_blob.get("calibration"),
+                "soil_derived": self._soil_derived_for_sensor(meta, sensor_id, sensor=sensor_blob),
             })
         if sensor_ids_for_host:
             self.nodus_host_sensors[base] = list(sensor_ids_for_host)
@@ -4361,6 +4401,23 @@ class saiMQTTIngest:
             "device_id": self._normalize_host_key(device_id) or device_id,
             "config_file": config_file,
         }
+
+    @staticmethod
+    def _soil_derived_for_sensor(meta, sensor_id, *, sensor=None):
+        raw = meta.get("soil_derived")
+        if not isinstance(raw, dict) or raw.get("sensor_id") != sensor_id:
+            return {}
+        if sensor is None:
+            _, sensors = nodus_meta.sensor_metadata_blocks(meta, meta.get("device_id") or "")
+            sensor = next((row for row in sensors if row.get("sensor_id") == sensor_id), {})
+        if sensor.get("config_file") != "sensor_soil.toml":
+            return {}
+        return normalize_soil_derived(raw)
+
+    def get_nodus_soil_derived(self, sensor_id: str) -> dict:
+        """Return the advertised settings for single-key soil calibration."""
+        host = self.resolve_nodus_sensor_target(sensor_id)["device_id"]
+        return self._soil_derived_for_sensor(self.discovery_cache.get(host) or {}, sensor_id)
 
     def get_nodus_firmware_version(self, device_id: str | None, device_type: str | None = None) -> str:
         """

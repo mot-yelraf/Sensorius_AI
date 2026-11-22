@@ -103,6 +103,7 @@ from .saiWebDevices import DeviceRouteDependencies, register_device_routes
 from .saiWebOnboarding import register_onboarding_routes
 from .saiWebGraphs import GRAPH_MAX_POINTS_PER_SERIES, _downsample_graph_points, register_graph_routes
 from .saiWebCalibration import register_calibration_routes, _SOIL_PH_CAL_KEYS
+from .saiSoilDerived import soil_form_channels
 from .saiWebSwitches import SwitchRouteDependencies, register_switch_events, register_switch_routes
 from .saiWebIntegrations import register_integration_routes
 from .saiWebDiagnostics import (
@@ -5582,6 +5583,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             _append_system_altitude_calibration(device_offsets, device_kind)
 
             ingest = services.mqtt_ingest
+            unit_system = saiSettings(apply_live=False).get_setting("Display", "unit_system", "Imperial")
+            calibration_view = calibration_presentation(device_offsets, ambient_temp_offset, unit_system)
+            soil_derived_channels = []
+            remote_soil = device_kind == "soil" and sensor_type in ("picow", "pico2w", "nodus", "remote")
+            get_soil = getattr(ingest, "get_nodus_soil_derived", None)
+            if remote_soil and callable(get_soil):
+                channels = get_soil(normalized_id)
+                if channels:
+                    get_latest = getattr(services.data_logger, "get_latest_values", None)
+                    latest = await asyncio.to_thread(get_latest, normalized_id) if callable(get_latest) else {}
+                    soil_derived_channels = soil_form_channels(
+                        channels, latest or {}, calibration_view["temperature_input_unit"]
+                    )
             nodus_firmware_version = ""
             if (
                 ingest
@@ -5639,8 +5653,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_label=device_label,
                 is_apvpd=is_apvpd,
                 is_soil=(device_kind == "soil"),
-                **calibration_presentation(device_offsets, ambient_temp_offset,
-                    saiSettings(apply_live=False).get_setting("Display", "unit_system", "Imperial")),
+                **calibration_view,
+                remote_soil=remote_soil,
+                soil_derived_channels=soil_derived_channels,
                 ambient_rh_offset=ambient_rh_offset,
                 nodus_firmware_version=nodus_firmware_version,
                 nodus_board_type=nodus_board_type,

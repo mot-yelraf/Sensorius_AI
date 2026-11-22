@@ -7296,3 +7296,128 @@ async def test_caelus_metric_finish_rejects_invalid_value_without_writes(tmp_pat
                                      headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
     assert response.status_code == 400
     assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
+
+
+@pytest.mark.asyncio
+async def test_soil_derived_save_paces_single_keys_and_requires_confirmation(tmp_path, monkeypatch):
+    app, ingest, _, _, _ = await _build_app(tmp_path, monkeypatch)
+    sensor = "soil-test123"
+    host = "nodus-test123"
+    group = "SoilStress"
+    channel = "CH2"
+    section = f"{group}.{channel}"
+    celsius = {
+        "SSI_TEMP_LOW_CRIT_C": 15, "SSI_TEMP_LOW_OK_C": 18,
+        "SSI_TEMP_HIGH_OK_C": 24, "SSI_TEMP_HIGH_CRIT_C": 30,
+        "SSI_MOISTURE_WEIGHT_PCT": 0, "SSI_TEMP_WEIGHT_PCT": 55,
+    }
+    current = {
+        **celsius, "SSI_TEMP_LOW_CRIT_C": 5, "SSI_TEMP_LOW_OK_C": 10,
+        "SSI_MOISTURE_WEIGHT_PCT": 100, "SSI_TEMP_WEIGHT_PCT": 0,
+    }
+    channels = {channel: {"groups": {group: current}}}
+    advertises_calibration = False
+
+    def get_soil(_sid):
+        return channels if advertises_calibration else {}
+
+    monkeypatch.setattr(ingest, "get_nodus_soil_derived", get_soil, raising=False)
+    monkeypatch.setattr(ingest, "resolve_nodus_sensor_target", lambda sid: {
+        "sensor_id": sid, "device_id": host, "config_file": "sensor_soil.toml",
+    }, raising=False)
+
+    events = []
+    failure = None
+    publish = ingest.publish_nodus_calibration
+
+    def publish_key(*args, **kwargs):
+        publication = publish(*args, **kwargs)
+        events.append(("set", publication["message_id"]))
+        return publication
+
+    async def ack(message_id, **_kwargs):
+        events.append(("ack", message_id))
+        return {"message_id": message_id, "device_id": host, "accepted": True}
+
+    async def result(message_id, **_kwargs):
+        events.append(("result", message_id))
+        key = ingest.calibration_commands[-1]["payload"]["key"]
+        return {
+            "message_id": message_id, "device_id": host, "sensor_id": sensor,
+            "name": "sensor_soil.toml", "section": section, "key": key,
+            "applied": failure != ("rejected", key), "updated": 1,
+            "persistence_mode": "volatile" if failure == "volatile" else "persisted",
+        }
+
+    async def patch(message_id, **_kwargs):
+        events.append(("patch", message_id))
+        if failure == "missing_patch":
+            return None
+        command = ingest.calibration_commands[-1]
+        assert command["message_id"] == message_id
+        update = command["payload"]
+        current[update["key"]] = update["value"]
+        return {
+            "schema": "nodus-meta-patch/v1", "device_id": host, "source": "calibration_set",
+            "message_id": message_id,
+            "updates": [{"sensor_id": sensor, "name": "sensor_soil.toml", **update}],
+        }
+
+    monkeypatch.setattr(ingest, "publish_nodus_calibration", publish_key)
+    monkeypatch.setattr(ingest, "wait_for_calibration_ack", ack)
+    monkeypatch.setattr(ingest, "wait_for_calibration_result", result)
+    monkeypatch.setattr(ingest, "wait_for_nodus_meta_patch", patch)
+    fahrenheit = {
+        key: value * 1.8 + 32 if key.endswith("_C") else value for key, value in celsius.items()
+    }
+    body = {
+        "sensor_id": sensor, "channel": channel, "group": group,
+        "temperature_unit": "°F", "values": fahrenheit,
+    }
+    endpoint = "/calibration/soil/derived"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        invalid = {**fahrenheit, "SSI_TEMP_LOW_OK_C": 600}
+        assert (await client.post(endpoint, json={**body, "values": invalid})).status_code == 400
+        assert (await client.post(endpoint, json={**body, "channel": "CH1"})).status_code == 409
+        assert (await client.post(endpoint, json=body)).status_code == 409
+        assert not ingest.calibration_commands
+
+        advertises_calibration = True
+        failure = "volatile"
+        assert (await client.post(endpoint, json=body)).status_code == 502
+        assert len(ingest.calibration_commands) == 1
+
+        failure = "missing_patch"
+        pending = await client.post(endpoint, json=body)
+        assert pending.status_code == 202
+        assert "1 of 4" in pending.json()["message"]
+        assert len(ingest.calibration_commands) == 2
+
+        failure = ("rejected", "SSI_TEMP_LOW_CRIT_C")
+        rejected = await client.post(endpoint, json=body)
+        assert rejected.status_code == 409
+        assert "1 of 4" in rejected.json()["message"]
+        assert len(ingest.calibration_commands) == 4
+        assert current["SSI_TEMP_LOW_OK_C"] == 18
+        assert current["SSI_TEMP_LOW_CRIT_C"] == 5
+
+        failure = None
+        events.clear()
+        response = await client.post(endpoint, json=body)
+        assert response.status_code == 200
+        assert response.json()["values"] == celsius
+        successful_commands = ingest.calibration_commands[4:]
+        expected_keys = ["SSI_TEMP_LOW_CRIT_C", "SSI_TEMP_WEIGHT_PCT", "SSI_MOISTURE_WEIGHT_PCT"]
+        assert len(successful_commands) == len(expected_keys)
+        for command, key in zip(successful_commands, expected_keys):
+            assert (command["device_id"], command["sensor_id"], command["name"], command["action"]) == (
+                host, sensor, "sensor_soil.toml", "soil_derived_apply",
+            )
+            assert command["payload"] == {"section": section, "key": key, "value": celsius[key]}
+        assert events == [
+            (phase, command["message_id"])
+            for command in successful_commands for phase in ("set", "ack", "result", "patch")
+        ]
+
+        assert (await client.post(endpoint, json=body)).status_code == 200
+        assert len(ingest.calibration_commands) == 7

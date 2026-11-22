@@ -1,5 +1,40 @@
 <!-- ui_templates/modals/sensor_settings.html -->
 
+{% macro calibration_offsets(offsets) -%}
+  <div class="calibration-grid calibration-grid-{{ [4, [2, offsets|length]|max]|min }}">
+    {% for off in offsets %}
+      {% set input_id = 'soilPhOffsetInput' if off.key == 'soil_ph_offset' else 'calibration-offset-' ~ off.key %}
+      <div class="calibration-field" data-dev-cal-row="1">
+        <label for="{{ input_id }}">{{ off.label }}{% if off.unit %} ({{ off.unit }}){% endif %}</label>
+        <input id="{{ input_id }}" type="number" step="any" class="devCalInput"
+               data-key="{{ off.key }}"
+               {% if off.input_unit %}data-input-unit="{{ off.input_unit }}"{% endif %}
+               data-initial="{{ off.value | default(0) }}"
+               {% if off.force_send %}data-force-send="1"{% endif %}
+               value="{{ off.value | default(0) }}"
+               {% if off.readonly %}readonly aria-readonly="true"{% endif %}
+               {% if off.title %}title="{{ off.title }}"{% endif %}>
+      </div>
+    {% endfor %}
+  </div>
+{%- endmacro %}
+
+{% macro soil_fields(channel, fields, columns) -%}
+  <div class="calibration-grid calibration-grid-{{ columns }}">
+    {% for field in fields %}
+      {% set field_id = 'soil-derived-' ~ channel ~ '-' ~ field.key %}
+      <div class="calibration-field">
+        <label for="{{ field_id }}">{{ field.label }} ({{ field.unit }})</label>
+        <input id="{{ field_id }}" type="number" step="any"
+               data-soil-key="{{ field.key }}" value="{{ field.value }}"
+               {% if field.unit == '%' %}min="0" max="100"{% endif %}
+               {% if field.unit == 'mg/kg' %}min="0"{% endif %}
+               required>
+      </div>
+    {% endfor %}
+  </div>
+{%- endmacro %}
+
 <div class="modal-backdrop" style="display:none">
   <div
     class="modal"
@@ -198,65 +233,17 @@
                     These offsets apply to the Ambient BME280 sensor on the i2c-1 bus.
                   </p>
 
-                  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                    <tbody>
-                      <tr data-dev-cal-row="1">
-                        <td style="padding:0.25rem 0.5rem;">
-                          Ambient Temperature Offset ({{ temperature_input_unit | default('°C') }})
-                        </td>
-                        <td style="padding:0.25rem 0.5rem; text-align:right;">
-                          <input type="number"
-                                 step="any"
-                                 data-key="ambient_temp_offset"
-                                 data-input-unit="{{ temperature_input_unit | default('°C') }}"
-                                 class="devCalInput"
-                                 style="width:100%; text-align:right;"
-                                 value="{{ ambient_temp_offset | default(0) }}">
-                        </td>
-                      </tr>
-                      <tr data-dev-cal-row="1">
-                        <td style="padding:0.25rem 0.5rem;">
-                          Ambient RH Offset (%)
-                        </td>
-                        <td style="padding:0.25rem 0.5rem; text-align:right;">
-                          <input type="number"
-                                 step="any"
-                                 data-key="ambient_rh_offset"
-                                 class="devCalInput"
-                                 style="width:100%; text-align:right;"
-                                 value="{{ ambient_rh_offset | default(0) }}">
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  {% set ambient_unit = temperature_input_unit | default('°C') %}
+                  {{ calibration_offsets([
+                    {'key': 'ambient_temp_offset', 'label': 'Ambient Temperature Offset',
+                     'unit': ambient_unit, 'input_unit': ambient_unit, 'value': ambient_temp_offset | default(0)},
+                    {'key': 'ambient_rh_offset', 'label': 'Ambient RH Offset',
+                     'unit': '%', 'value': ambient_rh_offset | default(0)}
+                  ]) }}
 
                   {% if device_offsets %}
                   <h4 class="section-title" style="margin-top:0.75rem;">Altitude Calibration</h4>
-                  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                    <tbody>
-                      {% for off in device_offsets %}
-                      <tr data-dev-cal-row="1">
-                        <td style="padding:0.25rem 0.5rem;">
-                          {{ off.label }}
-                          {% if off.unit %} ({{ off.unit }}){% endif %}
-                        </td>
-                        <td style="padding:0.25rem 0.5rem; text-align:right;">
-                          <input type="number"
-                                 step="any"
-                                 data-key="{{ off.key }}"
-                                 {% if off.input_unit %}data-input-unit="{{ off.input_unit }}"{% endif %}
-                                 data-initial="{{ off.value | default(0) }}"
-                                 {% if off.force_send %}data-force-send="1"{% endif %}
-                                 class="devCalInput"
-                                 style="width:100%; text-align:right;"
-                                 value="{{ off.value | default(0) }}"
-                                 {% if off.readonly %}readonly aria-readonly="true"{% endif %}
-                                 {% if off.title %}title="{{ off.title }}"{% endif %}>
-                        </td>
-                      </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
+                  {{ calibration_offsets(device_offsets) }}
                   {% endif %}
 
                   <hr style="margin:0.75rem 0;">
@@ -285,63 +272,14 @@
                   </div>
                   <span id="soilPhCalStatus" class="sai-live-status" aria-live="polite"></span>
 
-                  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                    <tbody>
-                      {% for off in device_offsets %}
-                      <tr data-dev-cal-row="1">
-                        <td style="padding:0.25rem 0.5rem;">
-                          {{ off.label }}
-                          {% if off.unit %} ({{ off.unit }}){% endif %}
-                        </td>
-                        <td style="padding:0.25rem 0.5rem; text-align:right;">
-                          <input type="number"
-                                 step="any"
-                                 data-key="{{ off.key }}"
-                                 {% if off.input_unit %}data-input-unit="{{ off.input_unit }}"{% endif %}
-                                 data-initial="{{ off.value | default(0) }}"
-                                 {% if off.force_send %}data-force-send="1"{% endif %}
-                                 class="devCalInput"
-                                 {% if off.key == "soil_ph_offset" %}id="soilPhOffsetInput"{% endif %}
-                                 style="width:100%; text-align:right;"
-                                 value="{{ off.value | default(0) }}"
-                                 {% if off.readonly %}readonly aria-readonly="true"{% endif %}
-                                 {% if off.title %}title="{{ off.title }}"{% endif %}>
-                        </td>
-                      </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
+                  {{ calibration_offsets(device_offsets) }}
 
                 {% elif device_offsets %}
                   <h4 class="section-title">Offsets</h4>
                   {% if device_kind == 'acurite_usb' %}
                   <p class="muted">Temperature and RH offsets correct outdoor readings before storage. System Altitude comes from General Settings and corrects Baro-Pressure; uncorrected Station Pressure remains available separately.</p>
                   {% endif %}
-                  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                    <tbody>
-                      {% for off in device_offsets %}
-                      <tr data-dev-cal-row="1">
-                        <td style="padding:0.25rem 0.5rem;">
-                          {{ off.label }}
-                          {% if off.unit %} ({{ off.unit }}){% endif %}
-                        </td>
-                        <td style="padding:0.25rem 0.5rem; text-align:right;">
-                          <input type="number"
-                                 step="any"
-                                 data-key="{{ off.key }}"
-                                 {% if off.input_unit %}data-input-unit="{{ off.input_unit }}"{% endif %}
-                                 data-initial="{{ off.value | default(0) }}"
-                                 {% if off.force_send %}data-force-send="1"{% endif %}
-                                 class="devCalInput"
-                                 style="width:100%; text-align:right;"
-                                 value="{{ off.value | default(0) }}"
-                                 {% if off.readonly %}readonly aria-readonly="true"{% endif %}
-                                 {% if off.title %}title="{{ off.title }}"{% endif %}>
-                        </td>
-                      </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
+                  {{ calibration_offsets(device_offsets) }}
 
                 {% else %}
                   <p class="muted" style="margin-top:0;">
@@ -349,6 +287,48 @@
                   </p>
                 {% endif %}
               </div>
+              {% if remote_soil %}
+              <div class="section">
+                <h4 class="section-title">Derived Soil Metrics</h4>
+                {% if soil_derived_channels %}
+                  <p class="muted">Each save updates the selected probe on Nodus. New readings use the saved settings.</p>
+                  {% set reading_columns = {'SoilDeficit': 2, 'SoilStress': 3, 'NPK': 4} %}
+                  {% for probe in soil_derived_channels %}
+                    <h5>Probe {{ probe.key }}</h5>
+                    {% for group in probe.groups %}
+                      <details data-mobile-inline data-soil-derived-group="{{ group.key }}" data-channel="{{ probe.key }}">
+                        <summary class="soil-derived-summary">{{ group.label }} settings</summary>
+                        <dl class="calibration-grid calibration-grid-{{ reading_columns[group.key] }}">
+                          {% for reading in group.readings %}
+                            <div class="calibration-field">
+                              <dt>{{ reading.label }}</dt>
+                              {% if reading.value is none %}
+                                <dd title="No reading reported">—</dd>
+                              {% else %}
+                                <dd>{{ reading.value }} {{ reading.unit }}</dd>
+                              {% endif %}
+                            </div>
+                          {% endfor %}
+                        </dl>
+                        {% if group.key == 'SoilStress' %}
+                          {{ soil_fields(probe.key, group.fields[:4], 4) }}
+                          {{ soil_fields(probe.key, group.fields[4:], 2) }}
+                        {% else %}
+                          {{ soil_fields(probe.key, group.fields, reading_columns[group.key]) }}
+                        {% endif %}
+                        {% if group.key == 'NPK' %}
+                          <p class="muted">Average nutrient score weight <output data-soil-average-weight></output></p>
+                        {% endif %}
+                        <button type="button" class="button blue" data-soil-save>Save {{ group.label }}</button>
+                        <div class="sai-live-status" aria-live="polite" data-soil-status></div>
+                      </details>
+                    {% endfor %}
+                  {% endfor %}
+                {% else %}
+                  <p class="muted">Waiting for Nodus to publish per-probe calibration settings.</p>
+                {% endif %}
+              </div>
+              {% endif %}
             </div>
             <div class="modal-footer sensor-pane-footer">
               <div class="sensor-pane-footer-row sensor-pane-footer-row-end">

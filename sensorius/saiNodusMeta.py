@@ -407,6 +407,9 @@ def merge_config_meta(payload: dict, previous_meta, *, device_id: str) -> dict:
     for field in ("time", "homeassistant"):
         if isinstance(payload.get(field), dict):
             meta[field] = copy.deepcopy(payload[field])
+    if "soil_derived" in payload or "soil_derived" in meta:
+        # A refreshed companion without soil settings withdraws the capability.
+        meta["soil_derived"] = copy.deepcopy(payload.get("soil_derived"))
     return meta
 
 

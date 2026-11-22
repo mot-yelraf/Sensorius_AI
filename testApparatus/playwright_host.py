@@ -184,14 +184,31 @@ def system_settings(documentation: bool = False) -> HTMLResponse:
 def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False, defer_details: bool = False) -> HTMLResponse:
     """Render a sensor's real settings and calibration panes for mobile checks."""
     from sensorius.saiInputUnits import calibration_presentation
-    offsets = [{"key": "Calibration.Device.TEMP_OFFSET", "label": "Temperature", "unit": "°C", "value": 1.0}]
+    from sensorius.saiSoilDerived import soil_form_channels
+
+    is_soil = sensor_id in ("soil-pr-check", "soil-no-capability-pr-check")
+    advertises_soil_calibration = sensor_id == "soil-pr-check"
     is_acurite = sensor_id.startswith("acurite-")
-    if is_acurite:
-        offsets += [
-            {"key": "Calibration.Device.RH_OFFSET", "label": "Rel-Humidity", "unit": "%", "value": 0.0},
-            {"key": "Calibration.Device.ALTITUDE_METERS", "label": "System Altitude", "unit": "m", "value": 1624.0,
-             "readonly": True, "force_send": True, "title": "Altitude is edited in General Settings."},
+    if is_soil:
+        offsets = [
+            {"key": key, "label": label, "unit": unit, "value": 0.0}
+            for key, label, unit in (
+                ("soil_moisture_offset", "Soil Moisture", "%"),
+                ("soil_temp_offset", "Soil Temperature", "°C"),
+                ("soil_ph_offset", "Soil pH", "pH"),
+                ("soil_ec_offset", "Soil EC", ""),
+            )
         ]
+    else:
+        offsets = [
+            {"key": "Calibration.Device.TEMP_OFFSET", "label": "Temperature", "unit": "°C", "value": 1.0},
+            {"key": "Calibration.Device.RH_OFFSET", "label": "Rel-Humidity", "unit": "%", "value": 0.0},
+        ]
+        if is_acurite:
+            offsets.append(
+                {"key": "Calibration.Device.ALTITUDE_METERS", "label": "System Altitude", "unit": "m", "value": 1624.0,
+                 "readonly": True, "force_send": True, "title": "Altitude is edited in General Settings."},
+            )
     presentation = calibration_presentation(offsets, 0.0, "Imperial")
     example = {
         "nodus_board_type": "xesp32s3", "nodus_sensor_hardware": "BME280",
@@ -199,8 +216,26 @@ def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False
         "last_offline_event_label": "2026-10-14 11:30:00 UTC",
         "last_packet_epoch": 1791979195, "data_packets_received": 1200,
     } if documentation else {}
+    soil_channels = {
+        channel: {"metric_prefix": f"{channel} ", "groups": {
+            "SoilDeficit": {"SPD_WET_THRESHOLD_PCT": wet, "SPD_DRY_THRESHOLD_PCT": 18},
+        }}
+        for channel, wet in (("CH1", 38), ("CH2", 44))
+    } if advertises_soil_calibration else {}
+    if advertises_soil_calibration:
+        soil_channels["CH1"]["groups"]["SoilStress"] = {
+            "SSI_TEMP_LOW_CRIT_C": 15, "SSI_TEMP_LOW_OK_C": 18, "SSI_TEMP_HIGH_OK_C": 24,
+            "SSI_TEMP_HIGH_CRIT_C": 30, "SSI_MOISTURE_WEIGHT_PCT": 70, "SSI_TEMP_WEIGHT_PCT": 30,
+        }
+        soil_channels["CH1"]["groups"]["NPK"] = {
+            "N_TARGET": 20, "P_TARGET": 30, "K_TARGET": 70, "SFI_MIN_WEIGHT_PCT": 50,
+        }
     return HTMLResponse(templates.get_template("modals/sensor_settings.html").render(
-        device_kind="acurite_usb" if is_acurite else "aht", device_offsets=offsets, **presentation,
+        device_kind="soil" if is_soil else ("acurite_usb" if is_acurite else "aht"),
+        device_offsets=offsets, is_soil=is_soil, remote_soil=is_soil, **presentation,
+        soil_derived_channels=soil_form_channels(
+            soil_channels, {"CH1 Soil Moisture": 26.5, "CH2 Soil Moisture": 32}, "°F",
+        ),
         supports_device_calibration=True, supports_system_calibration=not is_acurite,
         candidate_sensors=[] if defer_details else ["aht-pr-check", "reference"],
         sensor_id=sensor_id, is_ecowitt=sensor_id.startswith("ecowitt-"),

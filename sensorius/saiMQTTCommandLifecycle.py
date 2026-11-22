@@ -519,6 +519,9 @@ class MQTTCommandLifecycle:
                     "retain": bool(retain),
                     "received_at": now,
                 }
+                for key in ("section", "key", "persistence_mode"):
+                    if key in body:
+                        result[key] = body[key]
                 if message_id:
                     self.calibration_result_by_message[message_id] = result
                 if result["status"]:

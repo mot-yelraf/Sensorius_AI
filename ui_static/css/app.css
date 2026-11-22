@@ -1286,6 +1286,62 @@ canvas{
 #sensorSettingsForm .sensor-metric-style-select{
   margin-top:.28rem;
 }
+[data-soil-derived-group]{
+  margin-block:.5rem;
+}
+.soil-derived-summary{
+  cursor:pointer;
+  font-weight:600;
+  padding-block:.45rem;
+}
+.mobile-settings .soil-derived-summary::after{
+  content:"▸";
+  margin-inline-start:.4rem;
+}
+.mobile-settings [data-soil-derived-group][open] > .soil-derived-summary::after{
+  content:"▾";
+}
+.calibration-grid{
+  display:grid;
+  grid-template-columns:repeat(var(--calibration-columns), minmax(0, 1fr));
+  gap:clamp(.35rem, 1.5vw, .75rem);
+  margin:.4rem 0 .65rem;
+}
+.calibration-grid-2{--calibration-columns:2;}
+.calibration-grid-3{--calibration-columns:3;}
+.calibration-grid-4{--calibration-columns:4;}
+.calibration-field{
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  gap:.2rem;
+  min-width:0;
+  overflow-wrap:anywhere;
+  hyphens:auto;
+}
+.calibration-field label{
+  margin:0;
+}
+.calibration-field dt{
+  color:var(--muted);
+  font-size:.8rem;
+}
+.calibration-field dd{
+  margin:0;
+  font-weight:600;
+}
+#sensor-calibration-pane .calibration-field input[type="number"]{
+  width:100%;
+  min-width:0;
+  max-width:none;
+}
+@media (max-width: 420px){
+  .calibration-grid-4 .calibration-field label,
+  .calibration-grid-4 .calibration-field dt{
+    font-size:.74rem;
+    letter-spacing:-.02em;
+  }
+}
 .sensor-pane-footer{
   flex:0 0 auto;
   margin-top:auto;

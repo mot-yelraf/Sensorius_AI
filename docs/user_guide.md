@@ -1661,11 +1661,19 @@ Common fields and controls:
 - **Location**: the sensor location from Sensor Settings.
 - **Ambient Temperature Offset (C)**: correction added to the ambient temperature channel on APVPD-style devices.
 - **Ambient RH Offset (%)**: correction added to the ambient relative humidity channel on APVPD-style devices.
-- **Altitude Calibration / Offsets**: device-specific numeric offsets exposed by the sensor. Available fields depend on the sensor type and firmware metadata.
+- **Altitude Calibration / Offsets** shows the numeric offsets available for the sensor. Each metric name appears above its offset in a two-, three-, or four-column row.
 - **Calibrate Plant Sensor**: runs the APVPD plant-sensor calibration routine when the device supports it.
 - **Calibrate pH 4.0 / 7.0 / 10.0**: soil-sensor pH buffer calibration buttons. Use the matching buffer solution and wait for the probe to stabilize before applying.
-- **Soil Offsets**: manual numeric offsets for soil sensor channels such as pH or other exposed calibration values.
+- **Soil Offsets** shows manual offsets for soil moisture, temperature, pH and electrical conductivity in four columns.
+- **Derived Soil Metrics** lets you tune the moisture thresholds, temperature
+  thresholds and weights, and supported 7-in-1 nutrient targets and weights.
+  With compatible Nodus firmware, each probe shows its latest readings above
+  the thresholds, weights and targets. Saving a metric group sends changed
+  fields to Nodus one at a time. If a save stops partway through, reopen Calibration to check which fields
+  were saved. Use the existing **Soil Offsets** controls to correct probe readings.
 - **Apply Device Calibration**: saves the device calibration. For Nodus devices, the command is sent to the device and the local settings shadow is updated.
+
+![Soil sensor calibration pane with offsets and the moisture deficit, stress, and fertility settings expanded](<../assets/screenshots/sensor-settings-soil-calibration.png>)
 
 Temperature corrections follow the selected Units, including ambient, plant
 system-calibration results, and soil temperature offsets. An offset is a temperature
