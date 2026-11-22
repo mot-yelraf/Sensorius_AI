@@ -46,36 +46,44 @@ GROUPS = {
 }
 
 
+class SoilValidationError(ValueError):
+    """Carry a soil validation message that can be shown to the operator."""
+
+    def __init__(self, public_message):
+        super().__init__(public_message)
+        self.public_message = public_message
+
+
 def group_values(group, raw, *, validate=False):
     """Normalize a complete group, optionally checking coupled write constraints."""
     fields = GROUPS[group][1]
     if not isinstance(raw, dict) or raw.keys() != {key for key, _, _ in fields}:
-        raise ValueError("Provide all fields for the selected metric.")
+        raise SoilValidationError("Provide all fields for the selected metric.")
     values = {}
     for key, label, unit in fields:
         values[key] = _field_value(group, key, label, unit, raw[key], validate=validate)
     if validate:
         if group == "SoilDeficit" and values["SPD_WET_THRESHOLD_PCT"] <= values["SPD_DRY_THRESHOLD_PCT"]:
-            raise ValueError("Wet threshold must be higher than dry threshold.")
+            raise SoilValidationError("Wet threshold must be higher than dry threshold.")
         if group == "SoilStress":
             low_critical = values["SSI_TEMP_LOW_CRIT_C"]
             low_ok = values["SSI_TEMP_LOW_OK_C"]
             high_ok = values["SSI_TEMP_HIGH_OK_C"]
             high_critical = values["SSI_TEMP_HIGH_CRIT_C"]
             if not low_critical < low_ok <= high_ok < high_critical:
-                raise ValueError("Temperature thresholds must be ordered from low critical to high critical.")
+                raise SoilValidationError("Temperature thresholds must be ordered from low critical to high critical.")
             if values["SSI_MOISTURE_WEIGHT_PCT"] + values["SSI_TEMP_WEIGHT_PCT"] <= 0:
-                raise ValueError("At least one stress weight must be greater than zero.")
+                raise SoilValidationError("At least one stress weight must be greater than zero.")
     return values
 
 
 def _field_value(group, key, label, unit, value, *, validate):
     if type(value) not in (float, int) or not math.isfinite(value):
-        raise ValueError(f"{label} must be a finite number.")
+        raise SoilValidationError(f"{label} must be a finite number.")
     if validate and unit == "%" and not 0 <= value <= 100:
-        raise ValueError(f"{label} must be between 0 and 100%.")
+        raise SoilValidationError(f"{label} must be between 0 and 100%.")
     if validate and group == "NPK" and key.endswith("_TARGET") and value <= 0:
-        raise ValueError("Nutrient targets must be greater than zero.")
+        raise SoilValidationError("Nutrient targets must be greater than zero.")
     return float(value)
 
 
@@ -95,7 +103,7 @@ def ordered_soil_updates(group, current, requested):
             del remaining[key]
             break
         else:
-            raise ValueError("These settings cannot be saved one field at a time while keeping valid values.")
+            raise SoilValidationError("These settings cannot be saved one field at a time while keeping valid values.")
     return updates
 
 

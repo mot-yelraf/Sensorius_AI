@@ -25,7 +25,7 @@ MODULE = "saiWebRoutes"
 from dataclasses import dataclass
 from .saiInputUnits import calibration_input_offsets, calibration_presentation, native_input_value
 from .saiSoilDerived import (
-    ACTION as SOIL_DERIVED_ACTION, CHANNELS, GROUPS, group_values,
+    ACTION as SOIL_DERIVED_ACTION, CHANNELS, GROUPS, SoilValidationError, group_values,
     ordered_soil_updates, soil_patch_update,
 )
 from .saiSensorSettingsManager import is_direct_local_sensor_id
@@ -1335,8 +1335,10 @@ def register_calibration_routes(
                     if unit == "°C":
                         values[key] = round(native_input_value(values[key], temperature_unit, unit), 10)
             values = group_values(group, values, validate=True)
-        except (ValueError, OverflowError) as exc:
-            return error(str(exc), 400)
+        except SoilValidationError as exc:
+            return error(exc.public_message, 400)
+        except (ValueError, OverflowError):
+            return error("Provide finite numeric values for the selected metric.", 400)
 
         ingest = services.mqtt_ingest
         get_soil = getattr(ingest, "get_nodus_soil_derived", None)
@@ -1353,8 +1355,8 @@ def register_calibration_routes(
                 return error("Nodus has not advertised single-key calibration for this probe and metric.", 409)
             try:
                 updates = ordered_soil_updates(group, current, values)
-            except ValueError as exc:
-                return error(str(exc), 409)
+            except SoilValidationError as exc:
+                return error(exc.public_message, 409)
 
             section = f"{group}.{channel}"
             confirmed = dict(current)

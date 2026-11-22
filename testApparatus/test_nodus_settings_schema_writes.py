@@ -7377,7 +7377,15 @@ async def test_soil_derived_save_paces_single_keys_and_requires_confirmation(tmp
     endpoint = "/calibration/soil/derived"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         invalid = {**fahrenheit, "SSI_TEMP_LOW_OK_C": 600}
-        assert (await client.post(endpoint, json={**body, "values": invalid})).status_code == 400
+        invalid_response = await client.post(endpoint, json={**body, "values": invalid})
+        assert invalid_response.status_code == 400
+        assert invalid_response.json()["message"] == (
+            "Temperature thresholds must be ordered from low critical to high critical."
+        )
+        oversized = {**fahrenheit, "SSI_TEMP_LOW_OK_C": 10**400}
+        oversized_response = await client.post(endpoint, json={**body, "values": oversized})
+        assert oversized_response.status_code == 400
+        assert oversized_response.json()["message"] == "Provide finite numeric values for the selected metric."
         assert (await client.post(endpoint, json={**body, "channel": "CH1"})).status_code == 409
         assert (await client.post(endpoint, json=body)).status_code == 409
         assert not ingest.calibration_commands
