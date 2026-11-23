@@ -110,3 +110,110 @@ for (const width of [1280, 390]) {
     await expect(modal.locator('#autoEnabled')).toHaveValue('false');
   });
 }
+
+test('oyster fruiting recipe reviews sensor presets and imports alerts on the chosen schedule', async ({page}) => {
+  await page.setViewportSize({width: 390, height: 900});
+  await page.route('**/advanced/automations?*', route => route.fulfill({json: {items: [], groups: ['Indoor']}}));
+  await page.route('**/sensor-directory', route => route.fulfill({json: [{id: 'fruiting-room', label: 'Fruiting room'}]}));
+  await page.route('**/sensor-metrics?*', route => route.fulfill({json: {
+    Temperature: {native_unit: '°C', unit: '°C'},
+    'Rel-Humidity': {unit: '%'},
+    'Ambient VPD': {unit: 'kPa'},
+    CO2: {unit: 'ppm'},
+  }}));
+  let imported;
+  await page.route('**/advanced/automation-library/import', route => {
+    imported = route.request().postDataJSON();
+    return route.fulfill({json: {ok: true, rule_ids: imported.entries.map(entry => entry.template_id)}});
+  });
+  await page.goto('/');
+  await page.getByRole('link', {name: 'Open General Settings'}).click();
+  const modal = page.locator('#setupPiModal');
+  await modal.getByRole('button', {name: 'Automations', exact: true}).click();
+  await modal.getByRole('button', {name: 'Saved Automations', exact: true}).click();
+  await modal.getByRole('button', {name: 'Library', exact: true}).click();
+  const library = modal.locator('#automationLibrary');
+  await library.getByLabel('Environment', {exact: true}).selectOption('Indoor');
+  await library.getByLabel('Crop type', {exact: true}).selectOption('Fruit');
+  await library.getByLabel('Crop', {exact: true}).selectOption('indoor-oyster-mushroom');
+  await expect(library.locator('.library-bundle')).toHaveCount(3);
+  await library.getByLabel('Stage', {exact: true}).selectOption('fruiting');
+  const bundle = library.locator('.library-bundle');
+  await bundle.locator('summary').click();
+  await bundle.getByLabel('Select bundle', {exact: true}).check();
+  await bundle.getByLabel('Turn on fan (scheduled)', {exact: true}).uncheck();
+  await library.getByRole('button', {name: 'Review Selected (8)', exact: true}).click();
+  await expect(library.getByLabel('Destination group')).toHaveValue('Indoor');
+  for (const [role, metric] of [['temperature', 'Temperature'], ['relative humidity', 'Rel-Humidity'], ['vpd', 'Ambient VPD'], ['CO₂', 'CO2']]) {
+    await library.getByLabel(`Shared ${role} sensor / metric`, {exact: true}).selectOption(JSON.stringify(['fruiting-room', metric]));
+  }
+  await expect(library.getByLabel('Threshold (°C)').first()).toHaveValue('16.67');
+  await expect(library.getByLabel('Threshold (kPa)').first()).toHaveValue('0.19');
+  await expect(library.getByLabel('Threshold (kPa)').last()).toHaveValue('0.351');
+  await expect(library.getByLabel('Threshold (ppm)')).toHaveValue('800');
+  await expect(library.getByLabel('BD Calendar planting')).toHaveCount(0);
+  await library.getByLabel('Daily start time').fill('07:30');
+  await library.getByLabel('Daily end time').fill('19:30');
+  await library.getByRole('button', {name: 'Import Selected (8)', exact: true}).click();
+  await expect(modal.locator('#automationArrangeStatus')).toHaveText('Imported 8 disabled automations.');
+  expect(imported.group).toBe('Indoor');
+  expect(imported.entries.find(entry => entry.template_id === 'mushroom-lights')).toMatchObject({stage: 'fruiting', time_start: '07:30', time_end: '19:30'});
+  expect(imported.entries.find(entry => entry.template_id === 'mushroom-fruiting-vpd-high')).toMatchObject({sensor: 'fruiting-room', metric: 'Ambient VPD'});
+});
+
+test('cannabis drying and curing rules share one start time and display RH and converted temperature targets', async ({page}) => {
+  const stored = {rule_id: 'curing', group: 'Indoor', enabled: false, script_json: JSON.stringify({
+    name: 'Cannabis / Curing / Relative humidity low alert', enabled: false,
+    conditions: [{type: 'calendar', calendar_kind: 'datetime_range', calendar_start: '2027-03-23T21:30:00+00:00', calendar_end: ''}],
+    actions: [{type: 'none', executor_switch_id: '__system__'}],
+  })};
+  await page.route('**/advanced/automations?*', route => route.fulfill({json: {items: [stored], groups: ['Indoor']}}));
+  await page.route('**/sensor-directory', route => route.fulfill({json: [{id: 'drying-room', label: 'Drying room'}]}));
+  await page.route('**/sensor-metrics?*', route => route.fulfill({json: {
+    Temperature: {native_unit: '°C', unit: '°F', factor: 1.8, offset: 32},
+    'Rel-Humidity': {unit: '%'},
+  }}));
+  let imported;
+  await page.route('**/advanced/automation-library/import', route => {
+    imported = route.request().postDataJSON();
+    return route.fulfill({json: {ok: true, rule_ids: imported.entries.map(entry => entry.template_id)}});
+  });
+  await page.goto('/');
+  await page.getByRole('link', {name: 'Open General Settings'}).click();
+  const modal = page.locator('#setupPiModal');
+  await modal.getByRole('button', {name: 'Automations', exact: true}).click();
+  await modal.getByRole('button', {name: 'Library', exact: true}).click();
+  const library = modal.locator('#automationLibrary');
+  await library.getByLabel('Environment', {exact: true}).selectOption('Indoor');
+  await library.getByLabel('Crop type', {exact: true}).selectOption('Flower');
+  await library.getByLabel('Crop', {exact: true}).selectOption('indoor-cannabis');
+  const bundles = library.locator('.library-bundle');
+  await expect(bundles).toHaveCount(2);
+  for (const bundle of await bundles.all()) {
+    await bundle.locator('summary').click();
+    await bundle.getByLabel('Select bundle', {exact: true}).check();
+  }
+  await library.getByRole('button', {name: 'Review Selected (10)', exact: true}).click();
+  await expect(library.getByLabel('Stage start', {exact: true})).toHaveCount(0);
+  await library.getByLabel('Drying start (hub timezone)').fill('2027-03-13T14:30');
+  await library.getByLabel('Shared temperature sensor / metric', {exact: true}).selectOption(JSON.stringify(['drying-room', 'Temperature']));
+  await library.getByLabel('Shared relative humidity sensor / metric', {exact: true}).selectOption(JSON.stringify(['drying-room', 'Rel-Humidity']));
+  for (const [rule, unit, target] of [
+    ['Drying / Temperature low alert', '°F', '64.4'],
+    ['Drying / Temperature high alert', '°F', '69.8'],
+    ['Drying / Relative humidity low alert (first 48 hours)', '%', '40'],
+    ['Drying / Relative humidity high alert (after 48 hours)', '%', '60'],
+    ['Curing / Relative humidity low alert', '%', '60'],
+  ]) {
+    const card = library.getByRole('group', {name: `Cannabis / ${rule}`, exact: true});
+    await expect(card.getByLabel(`Threshold (${unit})`, {exact: true})).toHaveValue(target);
+  }
+  await library.getByRole('button', {name: 'Import Selected (10)', exact: true}).click();
+  await expect(modal.locator('#automationArrangeStatus')).toHaveText('Imported 10 disabled automations.');
+  expect(imported).toMatchObject({group: 'Indoor', drying_started_at: '2027-03-13T14:30'});
+  await modal.locator('.automation-group[data-group="Indoor"] > summary').click();
+  await modal.getByText('Cannabis / Curing / Relative humidity low alert', {exact: true}).click();
+  await expect(modal.getByLabel('Calendar event type')).toHaveValue('datetime_range');
+  await expect(modal.getByLabel('Stage start (UTC)', {exact: true})).toHaveValue('2027-03-23T21:30');
+  await expect(modal.getByLabel('Stage end (UTC, optional)', {exact: true})).toHaveValue('');
+});

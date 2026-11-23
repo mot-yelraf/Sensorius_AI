@@ -226,7 +226,11 @@ function updateAstralDependencyWarning(modal) {
   const box = q(modal, "#astralDependencyWarning");
   if (!box) return;
   const hasAstral = [...modal.querySelectorAll("#conditionsContainer .cond-group select")]
-    .some(sel => String(sel?.value || "").trim().toLowerCase() === "astral" || (String(sel?.value || "").trim().toLowerCase() === "calendar" && sel.closest(".cond-group")?.querySelector(".calendar-kind")?.value !== "date_time" && sel.closest(".cond-group")?.querySelector(".calendar-kind")?.value !== "date_range"));
+    .some(sel => {
+      const type = sel.value.trim().toLowerCase();
+      const kind = sel.closest(".cond-group")?.querySelector(".calendar-kind")?.value;
+      return type === "astral" || (type === "calendar" && !["date_time", "date_range", "datetime_range"].includes(kind));
+    });
   if (!hasAstral || astralStatus?.ok) {
     box.hidden = true;
     box.textContent = "";
@@ -749,7 +753,7 @@ function addCondition(modal, cond) {
   opLab.textContent = "Operator";
   const opSel = create("select");
   opSel.classList.add("op-select");
-  opSel.innerHTML = `<option value=">">&gt;</option><option value="<">&lt;</option><option value="==">==</option><option value="!=">!=</option>`;
+  opSel.innerHTML = `<option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="==">==</option><option value="!=">!=</option>`;
   opSel.value = cond?.op || ">";
   opWrap.append(opLab, opSel);
 
@@ -851,8 +855,8 @@ function renderAsTime() {
   calendarKindLabel.textContent = "Calendar";
   const calendarKind = create("select", "calendar-kind");
   calendarKind.setAttribute("aria-label", "Calendar event type");
-  calendarKind.innerHTML = '<option value="date_time">Date/Time</option><option value="bd_transitions">BD Transitions</option><option value="lunar_events">Lunar Events</option><option value="season">Season</option><option value="date_range">Stage Date Range</option>';
-  calendarKind.value = ["lunar_events", "date_time", "season", "date_range"].includes(cond?.calendar_kind) ? cond.calendar_kind : "bd_transitions";
+  calendarKind.innerHTML = '<option value="date_time">Date/Time</option><option value="bd_transitions">BD Transitions</option><option value="lunar_events">Lunar Events</option><option value="season">Season</option><option value="date_range">Stage Date Range</option><option value="datetime_range">Stage Date/Time Range</option>';
+  calendarKind.value = ["lunar_events", "date_time", "season", "date_range", "datetime_range"].includes(cond?.calendar_kind) ? cond.calendar_kind : "bd_transitions";
   calendarKindWrap.append(calendarKindLabel, calendarKind);
   const calendarEventWrap = create("div");
   const calendarEventLabel = create("label");
@@ -882,6 +886,26 @@ function renderAsTime() {
     wrapper.appendChild(input);
     calendarRangeWrap.appendChild(wrapper);
   }
+  const calendarDatetimeRangeWrap = create("div", "calendar-range calendar-datetime-range");
+  for (const [key, label] of [["start", "Stage start (UTC)"], ["end", "Stage end (UTC, optional)"]]) {
+    const wrapper = create("label");
+    wrapper.textContent = label;
+    const input = create("input", "calendar-datetime-range-" + key);
+    input.type = "datetime-local";
+    input.step = "1";
+    input.setAttribute("aria-label", label);
+    if (cond?.calendar_kind === "datetime_range" && cond["calendar_" + key]) {
+      const stored = cond["calendar_" + key];
+      const instant = new Date(stored);
+      if (Number.isFinite(instant.getTime())) {
+        input.value = instant.toISOString().slice(0, 19);
+        input.dataset.originalDisplay = input.value;
+        input.dataset.originalInstant = stored;
+      }
+    }
+    wrapper.appendChild(input);
+    calendarDatetimeRangeWrap.appendChild(wrapper);
+  }
   function fillCalendarEvents(preferred = "all") {
     const seasons = [["all", "All"], ["imbolc", "Imbolc"],
       ["spring_equinox", "Spring Equinox / Ostara"], ["spring_equilux", "Spring Equilux"],
@@ -909,7 +933,8 @@ function renderAsTime() {
   function renderAsCalendar(){
     group.innerHTML = "";
     const row = create("div", "cond calendar");
-    row.append(typeWrap, calendarKindWrap, calendarKind.value === "date_range" ? calendarRangeWrap : calendarKind.value === "date_time" ? calendarDateWrap : calendarEventWrap, rem);
+    const fields = {date_range: calendarRangeWrap, datetime_range: calendarDatetimeRangeWrap, date_time: calendarDateWrap};
+    row.append(typeWrap, calendarKindWrap, fields[calendarKind.value] || calendarEventWrap, rem);
     group.appendChild(row);
   }
 
@@ -1233,6 +1258,17 @@ function serializeForm(modal){
         if (!start.value || !end.value || start.value >= end.value) throw new Error("Set an ordered stage date range.");
         return {type: "calendar", calendar_kind: kind, calendar_start: start.value,
           calendar_end: end.value, calendar_timezone: start.dataset.timezone || calendarTimezone};
+      }
+      if (kind === "datetime_range") {
+        const start = group.querySelector(".calendar-datetime-range-start");
+        const end = group.querySelector(".calendar-datetime-range-end");
+        const instant = input => input.value === input.dataset.originalDisplay
+          ? input.dataset.originalInstant
+          : input.value ? input.value + "Z" : "";
+        const first = instant(start);
+        const last = instant(end);
+        if (!first || (last && Date.parse(first) >= Date.parse(last))) throw new Error("Set a stage start and a later end time, or leave the end blank.");
+        return {type: "calendar", calendar_kind: kind, calendar_start: first, calendar_end: last};
       }
       if (kind === "date_time") {
         const input = group.querySelector(".calendar-datetime");

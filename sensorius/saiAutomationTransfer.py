@@ -63,7 +63,7 @@ def _portable(value, depth=0):
 
 def _validate_script(script: dict) -> None:
     from .saiAutomationLibrary import normalize_stage_window
-    from .saiCalendarAutomation import LUNAR_PHASES
+    from .saiCalendarAutomation import LUNAR_PHASES, parse_calendar_datetime_range
     from .saiSeasonCalendar import SEASON_EVENTS
     from .saiSystemStatus import normalize_system_status_condition
 
@@ -81,7 +81,7 @@ def _validate_script(script: dict) -> None:
         _require(kind in {"sensor", "time", "timer", "astral", "calendar", "bd_transitions", "or", "severe_weather", "system_status"})
         if kind == "sensor":
             _require(_text(condition.get("sensor", condition.get("sensor_id"))) and _text(condition.get("metric")))
-            _require(condition.get("op") in {">", "<", "==", "!="} and _number(condition.get("value")))
+            _require(condition.get("op") in {">", ">=", "<", "==", "!="} and _number(condition.get("value")))
             _require(condition.get("hyst") is None or _number(condition["hyst"]) and condition["hyst"] >= 0)
         elif kind == "time":
             for key in ("start", "end"):
@@ -102,8 +102,11 @@ def _validate_script(script: dict) -> None:
         elif kind in {"calendar", "bd_transitions"}:
             calendar_kind = condition.get("calendar_kind", "bd_transitions") if kind == "calendar" else "bd_transitions"
             events = {"bd_transitions": {"all", "earth", "water", "air", "fire"}, "lunar_events": {"all", *LUNAR_PHASES},
-                      "season": {"all", *SEASON_EVENTS}, "date_time": {"all"}, "date_range": {"all"}}
+                      "season": {"all", *SEASON_EVENTS}, "date_time": {"all"}, "date_range": {"all"},
+                      "datetime_range": {"all"}}
             _require(calendar_kind in events and condition.get("calendar_event", "all") in events[calendar_kind])
+            if calendar_kind == "datetime_range":
+                parse_calendar_datetime_range(condition.get("calendar_start"), condition.get("calendar_end", ""))
             if calendar_kind in {"date_time", "date_range"}:
                 ZoneInfo(str(condition.get("calendar_timezone") or "UTC"))
                 if calendar_kind == "date_range":

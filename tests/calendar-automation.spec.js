@@ -86,7 +86,7 @@ for (const width of [1280, 390]) {
     const {modal, saves} = await openCalendarEditor(page, {type: 'calendar', calendar_kind: 'date_time', calendar_local: '2026-10-31T15:30', calendar_timezone: 'America/Denver'});
     const row = modal.locator('.cond.calendar');
     const kind = row.locator('.calendar-kind');
-    expect(await kind.locator('option').allTextContents()).toEqual(['Date/Time', 'BD Transitions', 'Lunar Events', 'Season', 'Stage Date Range']);
+    expect(await kind.locator('option').allTextContents()).toEqual(['Date/Time', 'BD Transitions', 'Lunar Events', 'Season', 'Stage Date Range', 'Stage Date/Time Range']);
     const datetimeInput = row.locator('.calendar-datetime');
     await expect(datetimeInput).toHaveValue('2026-10-31T15:30');
     await expect(row).toContainText('America/Denver');
@@ -102,6 +102,27 @@ for (const width of [1280, 390]) {
     await expect(datetimeInput).toHaveValue('2026-11-02T17:45');
   });
 }
+
+test('Calendar Stage Date/Time Range edits an optional end in UTC on a phone', async ({page}) => {
+  await page.setViewportSize({width: 390, height: 844});
+  const {modal, saves} = await openCalendarEditor(page, {
+    type: 'calendar', calendar_kind: 'datetime_range', calendar_start: '2027-03-23T15:30:00-06:00',
+  });
+  const start = modal.getByLabel('Stage start (UTC)', {exact: true});
+  const end = modal.getByLabel('Stage end (UTC, optional)', {exact: true});
+  await expect(start).toHaveValue('2027-03-23T21:30');
+  await expect(end).toHaveValue('');
+  const bounds = await end.boundingBox();
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  expect(bounds.y).toBeGreaterThan((await start.boundingBox()).y);
+  await end.fill('2027-04-01T17:00');
+  await modal.locator('#btnSetAutomation').click();
+  await expect.poll(() => saves.length).toBe(1);
+  expect(saves[0].conditions[0]).toMatchObject({
+    type: 'calendar', calendar_kind: 'datetime_range',
+    calendar_start: '2027-03-23T15:30:00-06:00', calendar_end: '2027-04-01T17:00Z',
+  });
+});
 
 test('Calendar Season lists all festivals and equiluxes and saves a selection', async ({page}) => {
   const {modal, saves} = await openCalendarEditor(page, {type: 'calendar', calendar_kind: 'season', calendar_event: 'all'});

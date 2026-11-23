@@ -1446,10 +1446,11 @@ class SwitchController:
             try:
                 threshold_num = float(threshold)
                 hyst_num = float(hyst or 0)
-                if op == ">":
+                if op in {">", ">="}:
+                    clear_op = "<" if op == ">=" else "<="
                     boundary_text = (
-                        f"; trigger > {threshold_num + hyst_num:g}; "
-                        f"clear <= {threshold_num - hyst_num:g}"
+                        f"; trigger {op} {threshold_num + hyst_num:g}; "
+                        f"clear {clear_op} {threshold_num - hyst_num:g}"
                     )
                 elif op == "<":
                     boundary_text = (
@@ -1488,6 +1489,12 @@ class SwitchController:
 
         if ctype == "calendar" and cond.get("calendar_kind") == "date_range":
             return f"[{status}] Stage window {cond.get('calendar_start', '')} to {cond.get('calendar_end', '')} (end exclusive); {cond.get('calendar_timezone', 'UTC')}"
+
+        if ctype == "calendar" and cond.get("calendar_kind") == "datetime_range":
+            start = self._format_biodynamic_transition_time(cond.get("calendar_start"))
+            end = cond.get("calendar_end")
+            until = f" to {self._format_biodynamic_transition_time(end)} (end exclusive)" if end else ""
+            return f"[{status}] Stage window from {start}{until}"
 
         if ctype == "calendar" and cond.get("calendar_kind") in {"date_time", "season"}:
             event = cond.get("_calendar_event") or {}

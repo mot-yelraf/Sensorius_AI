@@ -53,6 +53,8 @@ def test_group_modes_preserve_short_circuit_and_complete_reports():
 @pytest.mark.parametrize("op,value,state,expected", [
     (">", 27, False, False), (">", 27.01, False, True),
     (">", 24, True, True), (">", 23, True, False),
+    (">=", 26.99, False, False), (">=", 27, False, True),
+    (">=", 23, True, True), (">=", 22.99, True, False),
     ("<", 23, False, False), ("<", 22.99, False, True),
     ("<", 26, True, True), ("<", 27, True, False),
     ("==", 25, False, True), ("!=", 25, True, False),
