@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from .saiCalendarAutomation import parse_calendar_datetime_range
+
 
 @dataclass
 class CalendarEvaluationState:
@@ -112,6 +114,8 @@ def compare_with_hysteresis(op: str, actual: float, threshold: float, hyst: floa
 
     if op == ">":
         return (actual > hi) if not current_state else (actual > lo)
+    elif op == ">=":
+        return actual >= (lo if current_state else hi)
     elif op == "<":
         return (actual < lo) if not current_state else (actual < hi)
     elif op == "==":
@@ -260,6 +264,13 @@ class AutomationConditionEvaluator:
                     today = datetime.fromtimestamp(self.epoch(), ZoneInfo(str(cond.get("calendar_timezone") or "UTC"))).date()
                     return start <= today < end
                 except (ValueError, KeyError, TypeError, OverflowError):
+                    return False
+            if kind == "datetime_range":
+                try:
+                    start, end = parse_calendar_datetime_range(cond.get("calendar_start"), cond.get("calendar_end", ""))
+                    now = self.epoch()
+                    return start.timestamp() <= now and (end is None or now < end.timestamp())
+                except (ValueError, TypeError, OverflowError, OSError):
                     return False
             selected = str(cond.get("calendar_event", "all"))
             state_key = (str(rule_id or "calendar"), ctype, kind, selected, str(cond.get("calendar_at", "")))

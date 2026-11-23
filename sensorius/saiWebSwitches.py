@@ -1346,14 +1346,15 @@ def register_switch_routes(
                     "anchor_epoch": anchor_epoch,
                 }
                 if cond_type == "calendar":
-                    from .saiCalendarAutomation import LUNAR_PHASES, normalize_calendar_datetime
+                    from .saiCalendarAutomation import LUNAR_PHASES, normalize_calendar_datetime, parse_calendar_datetime_range
                     from .saiSeasonCalendar import SEASON_EVENTS
 
                     kind = str(c.get("calendar_kind", "bd_transitions")).strip().lower()
                     event = str(c.get("calendar_event", "all")).strip().lower()
                     choices = {"bd_transitions": {"all", "earth", "water", "air", "fire"},
                                "lunar_events": {"all", *LUNAR_PHASES},
-                               "season": {"all", *SEASON_EVENTS}, "date_time": {"all"}, "date_range": {"all"}}
+                               "season": {"all", *SEASON_EVENTS}, "date_time": {"all"}, "date_range": {"all"},
+                               "datetime_range": {"all"}}
                     if kind not in choices or event not in choices[kind]:
                         return error_response("Invalid Calendar event selection.", status_code=400)
                     if kind == "date_range":
@@ -1368,6 +1369,12 @@ def register_switch_routes(
                         except (ValueError, KeyError, TypeError):
                             return error_response("Invalid Calendar stage date range or timezone.", status_code=400)
                         normalized_condition.update(calendar_start=start, calendar_end=end, calendar_timezone=tz_name)
+                    if kind == "datetime_range":
+                        try:
+                            first, last = parse_calendar_datetime_range(c.get("calendar_start"), c.get("calendar_end", ""))
+                        except (ValueError, TypeError, OverflowError):
+                            return error_response("Invalid Calendar date/time range.", status_code=400)
+                        normalized_condition.update(calendar_start=first.isoformat(), calendar_end=last.isoformat() if last else "")
                     if kind == "date_time":
                         tz_name = str(c.get("calendar_timezone") or settings.get_setting("Astral", "TIMEZONE", "")
                                       or settings.get_setting("Time", "TZ", "UTC") or "UTC")

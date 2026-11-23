@@ -49,6 +49,20 @@ def normalize_calendar_datetime(value: str, timezone_name: str) -> str:
     return next(iter(candidates.values())).isoformat()
 
 
+def parse_calendar_datetime_range(start: str, end: str | None = "") -> tuple[datetime, datetime | None]:
+    """Validate an inclusive start and optional exclusive end, normalized to UTC."""
+    first = datetime.fromisoformat(start)
+    last = None if end is None or end == "" else datetime.fromisoformat(end)
+    if first.utcoffset() is None or (last is not None and last.utcoffset() is None):
+        raise ValueError("Calendar date/time range requires timezone offsets.")
+    first = first.astimezone(timezone.utc)
+    if last is not None:
+        last = last.astimezone(timezone.utc)
+        if first >= last:
+            raise ValueError("Calendar end must be after the start.")
+    return first, last
+
+
 def sky_context(config, at: datetime, phase_degrees: float) -> str:
     """Describe the Moon and the event day's local solar and lunar times."""
     from astral import Observer

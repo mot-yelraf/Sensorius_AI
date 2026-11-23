@@ -35,14 +35,14 @@ it as a separate automation. The original remains in **Saved Automations**.
 
 ## Automation Library
 
-Select **Library** beside **New** to browse bundled garden-crop starters. Filter
-by Indoor/Outdoor/Greenhouse, Root/Leaf/Flower/Fruit, crop, and stage. The four
+Select **Library** beside **New** to browse bundled starters and recipes. Filter
+by Indoor/Outdoor/Greenhouse, Root/Leaf/Flower/Fruit, crop, and stage. The four generic
 stages are Seedling, Immature, Mature, and Ready to Harvest. All bundle sections
 start collapsed. Select individual rules or whole bundles; selections remain
 selected while changing filters (maximum 100 per import).
 
-The initial catalog contains twelve illustrative crop profiles, one for each
-classification/environment combination. It provides low/high temperature,
+The catalog contains twelve generic crop profiles, one for each
+classification/environment combination. Generic starters provide low/high temperature,
 relative-humidity, VPD and soil-moisture alerts, a matching BD tending-period
 alert, and a stage-start reminder. These are starting points with no prescribed
 growing thresholds or stage durations. Enter your own targets during review.
@@ -54,10 +54,10 @@ each planting/variety, bind compatible sensor metrics, enter thresholds and
 hysteresis, and optionally set stage start/end dates. Shared sensor bindings
 apply one sensor choice to all selected alerts for a metric role. Temperature
 values use the displayed units and are converted to the metric's native units
-on import. Changing a sensor binding clears its threshold to avoid silently
-reinterpreting a value in different units.
+on import. Changing a sensor binding clears a generic threshold or restores an
+editable recipe preset in the new units.
 
-You can associate selections with a **BD Calendar Planting**. Set that planting's
+You can associate generic selections with a **BD Calendar Planting**. Set that planting's
 **Automation stage windows** and environment in its editor first. The library
 uses those dates for the selected stage and checks the planting's classification
 and environment. Calendar guidance uses explicit planting stage windows when
@@ -84,6 +84,48 @@ The small bundled catalog is defined in `sensorius/saiAutomationLibrary.py`;
 `AutomationManager` and the existing atomic TOML persistence path. Planting
 schedules are additive fields in the existing planting JSON records; no database
 schema migration is needed.
+
+### Oyster Mushroom
+
+Under **Indoor → Fruit → Oyster Mushroom**, select the alerts for your stage.
+Set stage dates manually if you want the alerts limited to that period.
+
+| Stage | Temperature | Humidity and air VPD | Fan and lights |
+| --- | --- | --- | --- |
+| Bag Incubation | Below 65°F or above 70°F | Moisture comes from the hydrated substrate in the closed bag. | Use ordinary room light, filtered gas exchange, and spacing between bags. |
+| Pinning | Below 62°F or above 68°F | Humidifier reminder below 90% RH. Low/high VPD alerts outside 0.190–0.234 kPa. | Choose daily reminder windows for fresh-air exchange and gentle indirect light. |
+| Fruiting | Below 62°F or above 68°F | Humidifier reminder below 85% RH and high RH alert above 90%. Low/high VPD alerts outside 0.190–0.351 kPa. | Fan reminder at 800 ppm CO₂ or higher, or choose a daily fresh-air window. Enter the same daily light window used for pinning. |
+
+Air VPD is saturation vapor pressure at the air temperature multiplied by
+`(1 − RH / 100)`. The low limit uses the lowest temperature and highest RH
+target. The high limit uses the highest temperature and lowest RH target.
+Pinning uses 90% RH at both ends of the temperature range. Bind the VPD alerts
+to the **Ambient VPD** or **VPD** reading for the air near the block. RH alerts
+use **Rel-Humidity** in percent.
+
+Daily windows use the hub system clock and can cross midnight. Each reminder
+fires when its window becomes active. Equipment reminders appear as dashboard
+alerts instructing the operator to turn the equipment on.
+
+### Cannabis drying and curing
+
+Under **Indoor → Flower → Cannabis**, select the **Drying** or **Curing** bundle.
+Bind temperature and **Rel-Humidity** sensors and enter the actual **Drying
+start** date and time in the hub timezone. The selected rules use that one start
+time.
+
+| Phase | Elapsed time from drying start | Temperature | Relative humidity |
+| --- | --- | --- | --- |
+| Initial drying | 0 to 48 hours | 18–21°C | 40% |
+| Remaining drying | 48 to 240 hours | 18–21°C | 60% |
+| Curing | From 240 hours onward | 18–21°C | 60% |
+
+At exactly 48 hours, the 60% RH rules take over. At exactly 240 hours, the
+curing rules take over. Elapsed times stay the same across daylight-saving
+changes. The recipe uses low and high dashboard alerts with editable thresholds
+and optional hysteresis. Enable the selected rules after import. Disable the
+curing rules when curing is complete, or set an end time on each saved rule.
+Saved **Stage Date/Time Range** conditions display their endpoints in UTC.
 
 ## Storage
 

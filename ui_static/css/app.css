@@ -1731,5 +1731,6 @@ html.native-pi-window :is(.metric-container,.switch-metric-container) *::after{
 .calendar-range{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:end; gap:.5rem; }
 .calendar-range > label{ min-width:0; margin:0; }
 .calendar-range input{ display:block; width:100%; min-width:0; margin-top:.2rem; }
+@media (max-width:700px){ .calendar-datetime-range{ grid-template-columns:minmax(0, 1fr); } }
 .library-field input, .library-field select{ padding:.4rem .5rem; border:1px solid var(--line); border-radius:6px; background:var(--panel, #fff); color:inherit; font:inherit; }
 .library-checkbox input{ padding:0; }

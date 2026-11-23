@@ -756,10 +756,10 @@ is required for dashboard alerts or email notifications.
 
 ![Automation Library top-level pane with crop filters and an expanded starter bundle](<../assets/screenshots/system-automation-library.png>)
 
-The Library supplies editable starting points, not growing prescriptions. It
-contains twelve illustrative crop profiles across the environment and crop-type
-combinations. You choose the sensor, thresholds, hysteresis, and dates; the
-Library does not choose safe targets or stage durations for your plants.
+The Library contains twelve generic crop profiles across the environment and
+crop-type combinations, plus Oyster Mushroom and Cannabis post-harvest recipes
+with editable targets.
+Choose the sensors, thresholds, hysteresis, and dates for your setup.
 
 1. Select **Library** beside **New**.
 2. Filter by **Environment** (**Indoor**, **Outdoor**, or **Greenhouse**),
@@ -771,11 +771,22 @@ Library does not choose safe targets or stage durations for your plants.
    so you can collect rules for several crops or stages before reviewing them.
 4. Select **Review Selected**. Up to 100 rules can be imported together.
 
-Each bundle offers low and high alerts for **Temperature**, **Relative humidity**,
+Each generic bundle offers low and high alerts for **Temperature**, **Relative humidity**,
 **VPD**, and **Soil moisture**, plus **Favorable BD tending period** and
 **Stage start reminder**. Choose only the rules for which you have suitable
 sensors or calendar data. Every imported action initially uses **Alert**, which
 shows a dashboard notification; importing does not operate equipment or send email.
+
+For oysters, select **Indoor → Fruit → Oyster Mushroom**. Choose **Bag
+Incubation**, **Pinning**, or **Fruiting**. The pinning and fruiting bundles
+include low/high air VPD alerts and reminders to turn on equipment. Bind the
+sensor alerts and enter your schedule for daily reminders. See the
+[Oyster Mushroom recipe](automations.md#oyster-mushroom) for stage targets.
+
+For post-harvest monitoring, select **Indoor → Flower → Cannabis**, then
+**Drying** and **Curing**. Enter the drying start time once and bind temperature
+and RH sensors. The [drying and curing recipe](automations.md#cannabis-drying-and-curing)
+uses 18–21°C throughout and moves from 40% to 60% RH after 48 hours.
 
 ##### Bind Sensors And Review Your Selection
 
@@ -793,8 +804,8 @@ In **Review Selected**, complete the following before **Import Selected**:
 - **Threshold** and **Hysteresis (same units)**: enter your own values for each
   sensor alert. Read the displayed units. Temperature entries follow the
   selected display units and are converted to the sensor's native units when
-  imported. Changing a sensor binding clears its threshold and resets hysteresis;
-  enter both again for the new units and sensor.
+  imported. Changing a sensor binding resets hysteresis and clears the threshold
+  or restores the recipe preset in the new units.
 - **Stage start** and **Stage end (exclusive)**: optionally restrict an unlinked
   sensor or BD alert to a date window. Enter both dates, with the end after the
   start. The window includes the start date and excludes the end date in the

@@ -67,6 +67,7 @@ export async function openAutomationLibrary(modal, onImported) {
   const selected = new Map();
   let batch = null;
   let destinationGroup = null;
+  let dryingStartedAt = '';
   let plantings = [];
   let bindings = [];
   let warning = '';
@@ -89,9 +90,12 @@ export async function openAutomationLibrary(modal, onImported) {
   else warning += 'Sensor bindings could not be loaded; reopen the library to retry. ';
   const filters = {environment: 'Greenhouse', part: '', crop: '', stage: 'seedling'};
   const keyFor = (crop, stage, template) => `${crop.id}:${stage}:${template.id}`;
+  const stagesFor = crop => crop.recipe
+    ? Object.entries(crop.recipe).map(([key, stage]) => [key, stage.name])
+    : Object.entries(data.stages);
   const heading = () => {
     panel.replaceChildren(element('h3', 'pane-title', 'Automation Library'));
-    panel.append(element('p', 'muted', 'Garden-crop starting points. Choose your own targets. Imported automations are disabled Alert rules; review them before enabling.'));
+    panel.append(element('p', 'muted', 'Choose a starter or recipe. Review targets, sensor bindings, and schedules before enabling imported Alert rules.'));
     if (warning) panel.append(element('p', 'sai-live-status', warning));
   };
   const footer = (...controls) => {
@@ -102,11 +106,15 @@ export async function openAutomationLibrary(modal, onImported) {
   function renderBrowse() {
     heading();
     const bar = element('div', 'library-filters library-browse-filters');
+    const crops = data.crops.filter(crop => (!filters.environment || crop.environment === filters.environment) && (!filters.part || crop.part === filters.part));
+    const visibleCrops = crops.filter(crop => !filters.crop || crop.id === filters.crop);
+    const stageOptions = [...new Map(visibleCrops.flatMap(stagesFor))];
+    if (!stageOptions.some(([key]) => key === filters.stage)) filters.stage = '';
     const options = {
       environment: [['', 'All environments'], ...data.environments.map(value => [value, value])],
       part: [['', 'All crop types'], ...data.parts.map(value => [value, value])],
-      crop: [['', 'All matching crops'], ...data.crops.filter(crop => (!filters.environment || crop.environment === filters.environment) && (!filters.part || crop.part === filters.part)).map(crop => [crop.id, crop.name])],
-      stage: [['', 'All stages'], ...Object.entries(data.stages)],
+      crop: [['', 'All matching crops'], ...crops.map(crop => [crop.id, crop.name])],
+      stage: [['', 'All stages'], ...stageOptions],
     };
     for (const [key, label] of [['environment', 'Environment'], ['part', 'Crop type'], ['crop', 'Crop'], ['stage', 'Stage']]) {
       const input = select(options[key], filters[key]);
@@ -125,12 +133,17 @@ export async function openAutomationLibrary(modal, onImported) {
       review.disabled = selected.size === 0 || selected.size > 100;
     };
     updateCount();
-    for (const crop of data.crops.filter(crop => (!filters.environment || crop.environment === filters.environment) && (!filters.part || crop.part === filters.part) && (!filters.crop || crop.id === filters.crop))) {
-      for (const [stage, stageName] of Object.entries(data.stages).filter(([key]) => !filters.stage || key === filters.stage)) {
+    for (const crop of visibleCrops) {
+      for (const [stage, stageName] of stagesFor(crop).filter(([key]) => !filters.stage || key === filters.stage)) {
+        const recipeStage = crop.recipe?.[stage];
+        const templates = data.templates.filter(template => recipeStage
+          ? recipeStage.templates.includes(template.id)
+          : !template.recipe_only);
         const bundle = element('details', 'integration-block library-bundle');
         bundle.setAttribute('data-mobile-inline', '');
         bundle.append(element('summary', '', `${crop.environment} / ${crop.name} / ${crop.part} / ${stageName}`));
         const content = element('div', 'integration-block-content');
+        if (recipeStage) content.append(element('p', 'muted', recipeStage.description));
         const all = element('input');
         all.type = 'checkbox';
         const inputs = [];
@@ -150,18 +163,18 @@ export async function openAutomationLibrary(modal, onImported) {
           batch = null;
         };
         all.onchange = () => {
-          data.templates.forEach((template, index) => { choose(template, all.checked); inputs[index].checked = all.checked; });
+          templates.forEach((template, index) => { choose(template, all.checked); inputs[index].checked = all.checked; });
           sync();
         };
         content.append(field('Select bundle', all));
-        for (const template of data.templates) {
+        for (const template of templates) {
           const input = element('input');
           input.type = 'checkbox';
           input.checked = selected.has(keyFor(crop, stage, template));
           input.onchange = () => { choose(template, input.checked); sync(); };
           inputs.push(input);
           const label = field(template.title, input);
-          label.title = template.description;
+          if (template.description) label.title = template.description;
           content.append(label);
         }
         sync();
@@ -200,7 +213,21 @@ export async function openAutomationLibrary(modal, onImported) {
     group.required = true;
     group.onchange = () => { destinationGroup = group.value; batch = null; };
     form.append(field('Destination group', group));
-    form.append(element('p', 'muted', 'Set a stage window or link a calendar planting to limit when alerts apply. Blank dates leave unlinked alerts active whenever enabled. End dates are exclusive, in the hub timezone. Planting dates are copied at import; later edits leave saved rules unchanged.'));
+    const timedSelections = [...selected.values()].filter(entry =>
+      data.crops.find(crop => crop.id === entry.crop_id)?.recipe?.[entry.stage]?.hours);
+    const usesDryingStart = timedSelections.length > 0;
+    if (usesDryingStart) {
+      const start = element('input');
+      start.type = 'datetime-local';
+      start.required = true;
+      start.value = dryingStartedAt;
+      start.oninput = () => { dryingStartedAt = start.value; batch = null; };
+      form.append(field('Drying start (hub timezone)', start),
+        element('p', 'muted', 'All selected cannabis rules use this start time. Drying ends after 240 hours and curing continues until its rules are disabled.'));
+    }
+    if (timedSelections.length < selected.size) {
+      form.append(element('p', 'muted', 'Set a stage window or link a calendar planting to limit when alerts apply. Blank dates leave unlinked alerts active whenever enabled. End dates are exclusive, in the hub timezone. Daily times use the system clock.'));
+    }
     const roles = [...new Set([...selected.values()].map(entry => data.templates.find(item => item.id === entry.template_id)).filter(template => template.kind === 'sensor').map(template => template.role))];
     if (roles.length) {
       const common = element('fieldset', 'library-review-entry');
@@ -225,8 +252,10 @@ export async function openAutomationLibrary(modal, onImported) {
     for (const [key, entry] of selected) {
       const crop = data.crops.find(item => item.id === entry.crop_id);
       const template = data.templates.find(item => item.id === entry.template_id);
+      const recipeStage = crop.recipe?.[entry.stage];
+      const stageName = recipeStage?.name || data.stages[entry.stage];
       const card = element('fieldset', 'library-review-entry');
-      card.append(element('legend', '', `${crop.name} / ${data.stages[entry.stage]} / ${template.title}`), element('p', 'muted', `${crop.environment} / ${crop.part}`));
+      card.append(element('legend', '', `${crop.name} / ${stageName} / ${template.title}`), element('p', 'muted', `${crop.environment} / ${crop.part}`));
       const remove = button('Remove selection', 'red');
       remove.onclick = () => { selected.delete(key); batch = null; if (selected.size) renderReview(); else renderBrowse(); };
       const fields = element('div', 'library-filters');
@@ -240,27 +269,30 @@ export async function openAutomationLibrary(modal, onImported) {
       variety.maxLength = 80;
       variety.oninput = () => { entry.variety = variety.value; batch = null; };
       fields.append(field('Planting name', name), field('Variety (optional)', variety));
-      const planting = select([['', 'No calendar planting'], ...plantings.filter(item => (!item.plant_part || item.plant_part === crop.part) && (!item.environment || item.environment === crop.environment)).map(item => [item.id, `${item.name}${item.variety ? ' / ' + item.variety : ''}`])], entry.planting_id);
-      const start = element('input');
-      const end = element('input');
-      start.type = end.type = 'date';
-      const dates = () => {
-        const linked = plantings.find(item => item.id === entry.planting_id);
-        if (linked) {
-          const window = linked.stage_schedule?.[entry.stage] || {};
-          entry.start = window.start || '';
-          entry.end = window.end || '';
-        }
-        start.value = entry.start;
-        end.value = entry.end;
-        start.disabled = end.disabled = !!linked;
-        start.required = end.required = template.kind === 'start' || !!entry.start || !!entry.end || !!linked;
-      };
-      planting.onchange = () => { entry.planting_id = planting.value; batch = null; dates(); };
-      start.oninput = () => { entry.start = start.value; batch = null; end.required = !!start.value || template.kind === 'start'; };
-      end.oninput = () => { entry.end = end.value; batch = null; start.required = !!end.value || template.kind === 'start'; };
-      dates();
-      fields.append(field('BD Calendar planting', planting), field('Stage start', start), field('Stage end (exclusive)', end));
+      if (!recipeStage?.hours) {
+        const planting = select([['', 'No calendar planting'], ...plantings.filter(item => (!item.plant_part || item.plant_part === crop.part) && (!item.environment || item.environment === crop.environment)).map(item => [item.id, `${item.name}${item.variety ? ' / ' + item.variety : ''}`])], entry.planting_id);
+        const start = element('input');
+        const end = element('input');
+        start.type = end.type = 'date';
+        const dates = () => {
+          const linked = plantings.find(item => item.id === entry.planting_id);
+          if (linked) {
+            const window = linked.stage_schedule?.[entry.stage] || {};
+            entry.start = window.start || '';
+            entry.end = window.end || '';
+          }
+          start.value = entry.start;
+          end.value = entry.end;
+          start.disabled = end.disabled = !!linked;
+          start.required = end.required = template.kind === 'start' || !!entry.start || !!entry.end || !!linked;
+        };
+        planting.onchange = () => { entry.planting_id = planting.value; batch = null; dates(); };
+        start.oninput = () => { entry.start = start.value; batch = null; end.required = !!start.value || template.kind === 'start'; };
+        end.oninput = () => { entry.end = end.value; batch = null; start.required = !!end.value || template.kind === 'start'; };
+        dates();
+        if (!crop.recipe) fields.append(field('BD Calendar planting', planting));
+        fields.append(field('Stage start', start), field('Stage end (exclusive)', end));
+      }
       if (template.kind === 'sensor') {
         const available = bindings.filter(item => template.metrics.includes(item.metric));
         const sensor = select([['', 'Choose a sensor / metric'], ...available.map(item => [JSON.stringify([item.sensor, item.metric]), item.label])], entry.sensor ? JSON.stringify([entry.sensor, entry.metric]) : '');
@@ -271,15 +303,22 @@ export async function openAutomationLibrary(modal, onImported) {
         threshold.type = 'number';
         threshold.step = 'any';
         threshold.required = true;
-        threshold.value = entry.value ?? '';
+        const preset = () => {
+          if (!entry.sensor || template.default_value === undefined) return '';
+          const value = template.default_value;
+          if (template.default_unit === '°F' && entry.unit === '°C') return Number(((value - 32) * 5 / 9).toFixed(2));
+          if (template.default_unit === '°C' && entry.unit === '°F') return Number((value * 9 / 5 + 32).toFixed(2));
+          return value;
+        };
+        threshold.value = entry.value ?? preset();
         const thresholdLabel = field(`Threshold (${entry.unit || 'select sensor units'})`, threshold);
         sensor.onchange = () => {
           const binding = available.find(item => JSON.stringify([item.sensor, item.metric]) === sensor.value);
           entry.sensor = binding?.sensor || '';
           entry.metric = binding?.metric || '';
           entry.unit = binding?.unit || '';
-          entry.value = '';
-          threshold.value = '';
+          delete entry.value;
+          threshold.value = preset();
           entry.hyst = 0;
           hyst.value = '0';
           thresholdLabel.firstChild.textContent = `Threshold (${entry.unit || 'native units'})`;
@@ -294,6 +333,24 @@ export async function openAutomationLibrary(modal, onImported) {
         hyst.value = entry.hyst;
         hyst.oninput = () => { entry.hyst = hyst.value; batch = null; };
         fields.append(field('Sensor / metric', sensor), thresholdLabel, field('Hysteresis (same units)', hyst));
+      }
+      if (template.kind === 'time') {
+        const startTime = element('input');
+        const endTime = element('input');
+        startTime.type = endTime.type = 'time';
+        startTime.required = endTime.required = true;
+        startTime.value = entry.time_start || '';
+        endTime.value = entry.time_end || '';
+        const validateTimes = () => endTime.setCustomValidity(endTime.value && endTime.value === startTime.value ? 'Choose an end time different from the start time.' : '');
+        const updateTimes = () => {
+          entry.time_start = startTime.value;
+          entry.time_end = endTime.value;
+          validateTimes();
+          batch = null;
+        };
+        validateTimes();
+        startTime.oninput = endTime.oninput = updateTimes;
+        fields.append(field('Daily start time', startTime), field('Daily end time', endTime));
       }
       card.append(fields, remove);
       form.append(card);
@@ -321,7 +378,9 @@ export async function openAutomationLibrary(modal, onImported) {
       controls.forEach(control => { control.disabled = true; });
       status.textContent = 'Importing disabled automations…';
       try {
-        const result = await json('/advanced/automation-library/import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: batch, group: group.value, entries})});
+        const payload = {batch_id: batch, group: group.value, entries};
+        if (usesDryingStart) payload.drying_started_at = dryingStartedAt;
+        const result = await json('/advanced/automation-library/import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
         await onImported(result.rule_ids, group.value);
         close();
         const message = modal.querySelector('#automationArrangeStatus');
